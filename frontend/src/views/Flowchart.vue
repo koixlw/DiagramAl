@@ -1,10 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import dagre from 'dagre'
-import * as graphlib from 'graphlib'
 
-const Graph = graphlib.Graph
 const router = useRouter()
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
@@ -18,12 +15,12 @@ let currentZoom = 1
 
 // 节点尺寸
 const ND = {
-  start:     { w: 140, h: 42 },
-  end:       { w: 140, h: 42 },
-  process:   { w: 160, h: 50 },
-  decision:  { w: 150, h: 72 },
-  io:        { w: 160, h: 42 },
-  connector: { w: 32,  h: 32 },
+  start:     { w: 150, h: 46 },
+  end:       { w: 150, h: 46 },
+  process:   { w: 170, h: 54 },
+  decision:  { w: 160, h: 76 },
+  io:        { w: 170, h: 46 },
+  connector: { w: 34,  h: 34 },
 }
 
 // 颜色
@@ -57,85 +54,159 @@ async function generate() {
   finally { loading.value = false }
 }
 
-function renderFlowchart(data) {
-  const nodes = data.nodes || []
-  const edges = data.edges || []
+/**
+ * 自定义 Visio 风格分层布局
+ * 1. 拓扑排序确定层级
+ * 2. 同层节点水平均匀分布
+ * 3. 连线走正交路径（横平竖直）
+ */
+function computeLayout(nodes, edges) {
+  const nodeMap = {}
+  nodes.forEach(n => { nodeMap[n.id] = { ...n, rank: 0, x: 0, y: 0, children: [], parents: [] } })
 
-  // Dagre 布局
-  const g = new Graph()
-  g.setGraph({ rankdir: 'TB', nodesep: 100, ranksep: 80, edgesep: 40, marginx: 100, marginy: 80 })
-  g.setDefaultEdgeLabel(() => ({}))
-
-  nodes.forEach(n => {
-    const d = ND[n.type] || ND.process
-    g.setNode(n.id, { w: d.w, h: d.h, label: n.label, nodeType: n.type })
-  })
+  // 构建图
   edges.forEach(e => {
-    const fn = nodes.find(x => x.id === e.from)
-    const tn = nodes.find(x => x.id === e.to)
-    g.setEdge(e.from, e.to, {
-      label: e.label || '',
-      ft: fn?.type || 'process',
-      tt: tn?.type || 'process',
+    if (nodeMap[e.from] && nodeMap[e.to]) {
+      nodeMap[e.from].children.push(e.to)
+      nodeMap[e.to].parents.push(e.from)
+    }
+  })
+
+  // BFS 分配层级
+  const rootIds = Object.values(nodeMap).filter(n => n.parents.length === 0).map(n => n.id)
+  const queue = [...rootIds]
+  const visited = new Set()
+  while (queue.length > 0) {
+    const id = queue.shift()
+    if (visited.has(id)) continue
+    visited.add(id)
+    const node = nodeMap[id]
+    node.children.forEach(cid => {
+      if (nodeMap[cid]) {
+        nodeMap[cid].rank = Math.max(nodeMap[cid].rank, node.rank + 1)
+        queue.push(cid)
+      }
+    })
+  }
+
+  // 收集每层的节点
+  const rankMap = {}
+  Object.values(nodeMap).forEach(n => {
+    const r = n.rank
+    if (!rankMap[r]) rankMap[r] = []
+    rankMap[r].push(n.id)
+  })
+
+  const maxRank = Math.max(...Object.keys(rankMap).map(Number))
+  const NODE_GAP = 180  // 同层节点水平间距
+  const RANK_GAP = 130  // 层与层垂直间距
+  const MARGIN_X = 120
+  const MARGIN_Y = 80
+
+  // 计算每层最大宽度
+  const rankMaxW = {}
+  Object.keys(rankMap).forEach(r => {
+    const ids = rankMap[r]
+    let maxW = 0
+    ids.forEach(id => { maxW = Math.max(maxW, ND[nodeMap[id].type]?.w || ND.process.w) })
+    rankMaxW[r] = maxW
+  })
+
+  // 画布总宽度
+  const canvasW = Math.max(
+    ...Object.values(rankMap).map(ids => {
+      let total = 0
+      ids.forEach((id, i) => {
+        const w = ND[nodeMap[id].type]?.w || ND.process.w
+        total += w
+        if (i > 0) total += NODE_GAP
+      })
+      return total + MARGIN_X * 2
+    }),
+    500
+  )
+
+  // 分配位置
+  Object.keys(rankMap).forEach(r => {
+    const ids = rankMap[r]
+    const totalW = ids.reduce((s, id, i) => {
+      const w = ND[nodeMap[id].type]?.w || ND.process.w
+      return s + w + (i > 0 ? NODE_GAP : 0)
+    }, 0)
+    const startX = (canvasW - totalW) / 2
+    let cx = startX
+    ids.forEach(id => {
+      const w = ND[nodeMap[id].type]?.w || ND.process.w
+      nodeMap[id].x = cx + w / 2
+      nodeMap[id].y = parseInt(r) * RANK_GAP + MARGIN_Y
+      cx += w + NODE_GAP
     })
   })
-  dagre.layout(g)
 
-  const gw = g.graph()
-  const svgW = Math.max(gw.width + 200, 500)
-  const svgH = Math.max(gw.height + 160, 400)
+  const canvasH = (maxRank + 1) * RANK_GAP + MARGIN_Y * 2
 
-  // 用更深的颜色确保可见性
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" style="font-family:Inter,sans-serif">`
+  return { nodeMap, canvasW, canvasH }
+}
+
+function renderFlowchart(data) {
+  const nodes = (data?.nodes || []).filter(n => n && n.id)
+  const edges = (data?.edges || []).filter(e => e && e.from && e.to)
+
+  if (nodes.length === 0) {
+    error.value = 'AI 返回了空数据，请换一种描述重试'
+    return
+  }
+
+  const { nodeMap, canvasW, canvasH } = computeLayout(nodes, edges)
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}" viewBox="0 0 ${canvasW} ${canvasH}" style="font-family:Inter,sans-serif">`
   svg += '<defs>'
   svg += `<marker id="ah" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="10" markerHeight="7" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#64748b"/></marker>`
   svg += `<marker id="aha" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="10" markerHeight="7" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#2563eb"/></marker>`
   svg += '</defs>'
-  svg += `<g transform="translate(0,0)">`
+  svg += '<g>'
 
-  // ---- 连线（正交路由） ----
+  // 连线 - 正交路由（从节点底部到节点顶部，走直线，有标签的走折线）
   edges.forEach(edge => {
-    const fn = g.node(edge.from)
-    const tn = g.node(edge.to)
+    const fn = nodeMap[edge.from]
+    const tn = nodeMap[edge.to]
     if (!fn || !tn) return
 
-    const fd = ND[fn.nodeType] || ND.process
-    const td = ND[tn.nodeType] || ND.process
+    const fd = ND[fn.type] || ND.process
+    const td = ND[tn.type] || ND.process
     const active = !!edge.label
-    const isDec = fn.nodeType === 'decision' || tn.nodeType === 'decision'
+    const sc = active ? '#2563eb' : '#64748b'
+    const sw = active ? 2 : 1.5
+    const mk = active ? 'url(#aha)' : 'url(#ah)'
 
+    // 起点（下方节点底部）和终点（上方节点顶部）
     const sx = fn.x
     const sy = fn.y + fd.h / 2
     const ex = tn.x
     const ey = tn.y - td.h / 2
 
-    let d
-    if (isDec && edge.label) {
-      // 决策分支：折线
-      const offset = edge.label === '否' ? 50 : -50
-      const midY = sy + (ey - sy) * 0.35
-      d = `M${sx},${sy} L${sx},${midY} L${sx + offset},${midY} L${sx + offset},${ey - 8} L${ex},${ey - 8} L${ex},${ey}`
-    } else {
+    let d, lx, ly
+
+    if (sx === ex) {
+      // 垂直直连
       d = `M${sx},${sy} L${ex},${ey}`
+      lx = sx + 16
+      ly = (sy + ey) / 2
+    } else {
+      // 折线：向下 → 水平 → 向上
+      const midY = sy + (ey - sy) / 2
+      if (active && edge.label) {
+        // 有标签的分支，标签在水平线段旁边
+        const labelSide = sx < ex ? 1 : -1
+        lx = (sx + ex) / 2 + labelSide * 16
+        ly = midY
+      }
+      d = `M${sx},${sy} L${sx},${midY} L${ex},${midY} L${ex},${ey}`
     }
 
-    const sc = active ? '#2563eb' : '#64748b'
-    const sw = active ? 2 : 1.5
-    const mk = active ? 'url(#aha)' : 'url(#ah)'
     svg += `<path d="${d}" fill="none" stroke="${sc}" stroke-width="${sw}" marker-end="${mk}" stroke-linecap="round" stroke-linejoin="round"/>`
 
-    // 标签
     if (edge.label) {
-      let lx, ly
-      if (isDec) {
-        const offset2 = edge.label === '否' ? 50 : -50
-        const midY2 = sy + (ey - sy) * 0.35
-        lx = sx + offset2 + (offset2 > 0 ? 8 : -8)
-        ly = midY2
-      } else {
-        lx = (sx + ex) / 2 + 12
-        ly = (sy + ey) / 2
-      }
       const fc = active ? '#2563eb' : '#475569'
       const fb = active ? '#eff6ff' : '#f8fafc'
       const sb = active ? '#93c5fd' : '#cbd5e1'
@@ -145,18 +216,16 @@ function renderFlowchart(data) {
     }
   })
 
-  // ---- 节点 ----
+  // 节点
   nodes.forEach(node => {
-    const n = g.node(node.id)
+    const n = nodeMap[node.id]
     if (!n) return
     const c = CL[node.type] || CL.process
     const nd = ND[node.type] || ND.process
     const cx = n.x, cy = n.y
 
-    // 形状
     svg += makeShape(node.type, nd.w, nd.h, cx, cy, c)
 
-    // 文字
     const ty = node.type === 'decision' ? cy + 2 : cy + 3
     svg += `<text x="${cx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${c.text}" font-weight="${node.type === 'decision' ? 600 : 400}">${node.label}</text>`
   })
@@ -294,14 +363,11 @@ function downloadSVG() {
 
       <!-- Right Canvas -->
       <main class="flex-1 bg-surface-bright dot-grid relative overflow-hidden flex flex-col">
-        <!-- Error -->
         <div v-if="error" class="absolute top-4 left-1/2 -translate-x-1/2 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg shadow-sm z-30 text-sm max-w-lg">
           <span class="material-symbols-outlined text-sm align-middle mr-1">error</span>
           {{ error }}
           <button @click="error = ''" class="ml-2 text-red-500 hover:text-red-700">&times;</button>
         </div>
-
-        <!-- Toolbar -->
         <div class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-sm flex items-center gap-1 p-1 z-10">
           <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" @click="zoomOut" :disabled="!hasDiagram">
             <span class="material-symbols-outlined">remove</span>
@@ -320,8 +386,6 @@ function downloadSVG() {
             <span class="font-label-mono text-xs hidden sm:inline">居中</span>
           </button>
         </div>
-
-        <!-- Canvas -->
         <div class="flex-1 relative w-full h-full overflow-auto p-8 flex items-center justify-center min-h-[600px] min-w-[800px]">
           <div v-if="!hasDiagram && !loading" class="flex flex-col items-center justify-center text-on-surface-variant">
             <span class="material-symbols-outlined text-6xl text-outline-variant mb-4">account_tree</span>
