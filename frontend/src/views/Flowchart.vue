@@ -5,7 +5,7 @@
       <div class="flex items-center gap-4">
         <span class="font-headline-md text-headline-md font-bold text-primary cursor-pointer" @click="$router.push('/')">DiagramAI</span>
         <nav class="hidden md:flex gap-6 ml-8">
-          <a class="text-primary border-b-2 border-primary pb-1 flex items-center gap-2 hover:bg-surface-container-low transition-colors active:scale-95 duration-100 cursor-pointer">
+          <a class="text-primary border-b-2 border-primary pb-1 flex items-center gap-2 hover:bg-surface-container-low transition-colors active:scale-95 duration-100 cursor-pointer" @click="$router.push('/flowchart')">
             <span class="material-symbols-outlined">account_tree</span> 流程图
           </a>
           <a class="text-secondary pb-1 flex items-center gap-2 hover:bg-surface-container-low transition-colors active:scale-95 duration-100 cursor-pointer" @click="$router.push('/er')">

@@ -6,7 +6,7 @@
         <span class="font-headline-md text-headline-md font-bold text-primary cursor-pointer" @click="$router.push('/')">DiagramAI</span>
         <nav class="hidden md:flex gap-6 ml-8">
           <a class="text-secondary font-label-mono text-label-mono hover:bg-surface-container-low transition-colors px-2 py-1 rounded cursor-pointer" @click="$router.push('/flowchart')">流程图</a>
-          <a class="text-primary font-label-mono text-label-mono border-b-2 border-primary hover:bg-surface-container-low transition-colors px-2 py-1 active:scale-95 duration-100 cursor-pointer">E-R 图</a>
+          <a class="text-primary font-label-mono text-label-mono border-b-2 border-primary hover:bg-surface-container-low transition-colors px-2 py-1 active:scale-95 duration-100 cursor-pointer" @click="$router.push('/er')">E-R 图</a>
         </nav>
       </div>
       <div class="flex items-center gap-4">
