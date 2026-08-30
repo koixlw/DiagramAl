@@ -1,11 +1,10 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import dagre from 'dagre'
 import * as graphlib from 'graphlib'
 
 const Graph = graphlib.Graph
-
 const router = useRouter()
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
@@ -17,16 +16,18 @@ const svgContent = ref('')
 const zoomLevel = ref(100)
 let currentZoom = 1
 
-const nodeDims = {
-  start: { w: 130, h: 40 },
-  end: { w: 130, h: 40 },
-  process: { w: 150, h: 48 },
-  decision: { w: 140, h: 70 },
-  io: { w: 150, h: 40 },
-  connector: { w: 30, h: 30 },
+// 节点尺寸
+const ND = {
+  start:     { w: 140, h: 42 },
+  end:       { w: 140, h: 42 },
+  process:   { w: 160, h: 50 },
+  decision:  { w: 150, h: 72 },
+  io:        { w: 160, h: 42 },
+  connector: { w: 32,  h: 32 },
 }
 
-const colors = {
+// 颜色
+const CL = {
   start:     { fill: '#d1fae5', stroke: '#059669', text: '#064e3b' },
   end:       { fill: '#fee2e2', stroke: '#dc2626', text: '#7f1d1d' },
   process:   { fill: '#dbeafe', stroke: '#2563eb', text: '#1e3a5f' },
@@ -40,107 +41,124 @@ async function generate() {
   loading.value = true
   error.value = ''
   hasDiagram.value = false
-
   try {
     const res = await fetch(`${API_BASE}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'flowchart', description: inputText.value }),
     })
-
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
       throw new Error(err.detail || `请求失败 (${res.status})`)
     }
-
-    const data = await res.json()
-    renderFlowchart(data.data)
+    renderFlowchart((await res.json()).data)
     hasDiagram.value = true
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    loading.value = false
-  }
+  } catch (e) { error.value = e.message }
+  finally { loading.value = false }
 }
 
 function renderFlowchart(data) {
   const nodes = data.nodes || []
   const edges = data.edges || []
 
+  // Dagre 布局
   const g = new Graph()
-  g.setGraph({ rankdir: 'TB', nodesep: 50, ranksep: 70, marginx: 60, marginy: 60 })
+  g.setGraph({ rankdir: 'TB', nodesep: 100, ranksep: 80, edgesep: 40, marginx: 100, marginy: 80 })
   g.setDefaultEdgeLabel(() => ({}))
 
   nodes.forEach(n => {
-    const d = nodeDims[n.type] || nodeDims.process
-    g.setNode(n.id, { ...d, label: n.label, nodeType: n.type })
+    const d = ND[n.type] || ND.process
+    g.setNode(n.id, { w: d.w, h: d.h, label: n.label, nodeType: n.type })
   })
-  edges.forEach(e => g.setEdge(e.from, e.to, { label: e.label || '' }))
+  edges.forEach(e => {
+    const fn = nodes.find(x => x.id === e.from)
+    const tn = nodes.find(x => x.id === e.to)
+    g.setEdge(e.from, e.to, {
+      label: e.label || '',
+      ft: fn?.type || 'process',
+      tt: tn?.type || 'process',
+    })
+  })
   dagre.layout(g)
 
   const gw = g.graph()
-  const svgW = Math.max(gw.width + 120, 600)
-  const svgH = Math.max(gw.height + 120, 400)
+  const svgW = Math.max(gw.width + 200, 500)
+  const svgH = Math.max(gw.height + 160, 400)
 
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">`
+  // 用更深的颜色确保可见性
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" style="font-family:Inter,sans-serif">`
   svg += '<defs>'
-  svg += `<marker id="ah" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#94a3b8"/></marker>`
-  svg += `<marker id="aha" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#2563eb"/></marker>`
+  svg += `<marker id="ah" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="10" markerHeight="7" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#64748b"/></marker>`
+  svg += `<marker id="aha" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="10" markerHeight="7" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#2563eb"/></marker>`
   svg += '</defs>'
-  svg += '<g>'
+  svg += `<g transform="translate(0,0)">`
 
-  // Edges
+  // ---- 连线（正交路由） ----
   edges.forEach(edge => {
-    const from = g.node(edge.from)
-    const to = g.node(edge.to)
-    if (!from || !to) return
+    const fn = g.node(edge.from)
+    const tn = g.node(edge.to)
+    if (!fn || !tn) return
 
+    const fd = ND[fn.nodeType] || ND.process
+    const td = ND[tn.nodeType] || ND.process
     const active = !!edge.label
-    const isDec = from.nodeType === 'decision' || to.nodeType === 'decision'
-    const sx = from.x, sy = from.y + from.height / 2
-    const ex = to.x, ey = to.y - to.height / 2
+    const isDec = fn.nodeType === 'decision' || tn.nodeType === 'decision'
+
+    const sx = fn.x
+    const sy = fn.y + fd.h / 2
+    const ex = tn.x
+    const ey = tn.y - td.h / 2
 
     let d
-    if (isDec) {
-      const my = (sy + ey) / 2
-      d = `M${sx},${sy} L${sx},${my} L${ex},${my} L${ex},${ey}`
+    if (isDec && edge.label) {
+      // 决策分支：折线
+      const offset = edge.label === '否' ? 50 : -50
+      const midY = sy + (ey - sy) * 0.35
+      d = `M${sx},${sy} L${sx},${midY} L${sx + offset},${midY} L${sx + offset},${ey - 8} L${ex},${ey - 8} L${ex},${ey}`
     } else {
       d = `M${sx},${sy} L${ex},${ey}`
     }
 
+    const sc = active ? '#2563eb' : '#64748b'
     const sw = active ? 2 : 1.5
-    const sc = active ? '#2563eb' : '#94a3b8'
     const mk = active ? 'url(#aha)' : 'url(#ah)'
-    svg += `<path d="${d}" fill="none" stroke="${sc}" stroke-width="${sw}" marker-end="${mk}"/>`
+    svg += `<path d="${d}" fill="none" stroke="${sc}" stroke-width="${sw}" marker-end="${mk}" stroke-linecap="round" stroke-linejoin="round"/>`
 
+    // 标签
     if (edge.label) {
       let lx, ly
       if (isDec) {
-        const my2 = (sy + ey) / 2
-        lx = (sx + ex) / 2 + (edge.label === '否' ? 14 : -14)
-        ly = my2
+        const offset2 = edge.label === '否' ? 50 : -50
+        const midY2 = sy + (ey - sy) * 0.35
+        lx = sx + offset2 + (offset2 > 0 ? 8 : -8)
+        ly = midY2
       } else {
-        lx = (sx + ex) / 2
+        lx = (sx + ex) / 2 + 12
         ly = (sy + ey) / 2
       }
-      const tw = edge.label.length * 12 + 16
-      const fc = active ? '#2563eb' : '#64748b'
+      const fc = active ? '#2563eb' : '#475569'
       const fb = active ? '#eff6ff' : '#f8fafc'
-      const sb = active ? '#bfdbfe' : '#e2e8f0'
+      const sb = active ? '#93c5fd' : '#cbd5e1'
+      const tw = edge.label.length * 12 + 18
       svg += `<rect x="${lx - tw/2}" y="${ly - 10}" width="${tw}" height="20" rx="4" fill="${fb}" stroke="${sb}" stroke-width="1"/>`
-      svg += `<text x="${lx}" y="${ly + 4}" text-anchor="middle" font-size="11" font-family="Inter,sans-serif" fill="${fc}" font-weight="500">${edge.label}</text>`
+      svg += `<text x="${lx}" y="${ly + 4}" text-anchor="middle" font-size="11" fill="${fc}" font-weight="500">${edge.label}</text>`
     }
   })
 
-  // Nodes
+  // ---- 节点 ----
   nodes.forEach(node => {
     const n = g.node(node.id)
     if (!n) return
-    const c = colors[node.type] || colors.process
+    const c = CL[node.type] || CL.process
+    const nd = ND[node.type] || ND.process
     const cx = n.x, cy = n.y
-    const shape = makeShape(node.type, n.width, n.height, cx, cy, c)
-    svg += shape
-    svg += `<text x="${cx}" y="${cy + (node.type === 'decision' ? 2 : 4)}" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Inter,sans-serif" fill="${c.text}" font-weight="${node.type === 'decision' ? 500 : 400}">${node.label}</text>`
+
+    // 形状
+    svg += makeShape(node.type, nd.w, nd.h, cx, cy, c)
+
+    // 文字
+    const ty = node.type === 'decision' ? cy + 2 : cy + 3
+    svg += `<text x="${cx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${c.text}" font-weight="${node.type === 'decision' ? 600 : 400}">${node.label}</text>`
   })
 
   svg += '</g></svg>'
@@ -154,36 +172,27 @@ function makeShape(type, w, h, cx, cy, c) {
   switch (type) {
     case 'start':
     case 'end':
-      return `<rect x="${cx - w/2}" y="${cy - h/2}" width="${w}" height="${h}" rx="${h/2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
+      return `<rect x="${cx - w/2}" y="${cy - h/2}" width="${w}" height="${h}" rx="${h/2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"/>`
     case 'process':
-      return `<rect x="${cx - w/2}" y="${cy - h/2}" width="${w}" height="${h}" rx="4" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
+      return `<rect x="${cx - w/2}" y="${cy - h/2}" width="${w}" height="${h}" rx="6" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"/>`
     case 'decision': {
       const hw = w/2, hh = h/2
-      return `<polygon points="${cx},${cy-hh} ${cx+hw},${cy} ${cx},${cy+hh} ${cx-hw},${cy}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
+      return `<polygon points="${cx},${cy-hh} ${cx+hw},${cy} ${cx},${cy+hh} ${cx-hw},${cy}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"/>`
     }
     case 'io': {
-      const off = 14
-      return `<polygon points="${cx-w/2+off},${cy-h/2} ${cx+w/2},${cy-h/2} ${cx+w/2-off},${cy+h/2} ${cx-w/2},${cy+h/2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
+      const off = 16
+      return `<polygon points="${cx-w/2+off},${cy-h/2} ${cx+w/2},${cy-h/2} ${cx+w/2-off},${cy+h/2} ${cx-w/2},${cy+h/2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"/>`
     }
     case 'connector':
-      return `<circle cx="${cx}" cy="${cy}" r="${Math.min(w,h)/2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
+      return `<circle cx="${cx}" cy="${cy}" r="${Math.min(w,h)/2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"/>`
     default:
-      return `<rect x="${cx - w/2}" y="${cy - h/2}" width="${w}" height="${h}" rx="4" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
+      return `<rect x="${cx - w/2}" y="${cy - h/2}" width="${w}" height="${h}" rx="6" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"/>`
   }
 }
 
-function zoomIn() {
-  currentZoom = Math.min(currentZoom * 1.2, 3)
-  applyZoom()
-}
-function zoomOut() {
-  currentZoom = Math.max(currentZoom / 1.2, 0.3)
-  applyZoom()
-}
-function resetZoom() {
-  currentZoom = 1
-  applyZoom()
-}
+function zoomIn() { currentZoom = Math.min(currentZoom * 1.2, 3); applyZoom() }
+function zoomOut() { currentZoom = Math.max(currentZoom / 1.2, 0.3); applyZoom() }
+function resetZoom() { currentZoom = 1; applyZoom() }
 function applyZoom() {
   zoomLevel.value = Math.round(currentZoom * 100)
   const svg = document.querySelector('#flowchart-canvas svg')
@@ -192,10 +201,8 @@ function applyZoom() {
 function downloadSVG() {
   if (!svgContent.value) return
   const blob = new Blob([svgContent.value], { type: 'image/svg+xml' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = `flowchart-${Date.now()}.svg`; a.click()
-  URL.revokeObjectURL(url)
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+  a.download = `flowchart-${Date.now()}.svg`; a.click()
 }
 </script>
 
