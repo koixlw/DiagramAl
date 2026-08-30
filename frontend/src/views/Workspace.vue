@@ -191,7 +191,7 @@
 
           <!-- Footer -->
           <footer class="mt-12 bg-surface-container-lowest border-t border-outline-variant flex justify-between items-center px-gutter py-2 text-xs rounded-b-xl shadow-sm">
-            <span class="text-secondary font-label-mono text-label-mono">&copy; 2024 DiagramAI Engine</span>
+            <span class="text-secondary font-label-mono text-label-mono">&copy; 2026 DiagramAI Engine</span>
             <div class="flex gap-4">
               <a class="text-secondary-fixed-variant hover:text-primary transition-colors opacity-80 hover:opacity-100 font-label-mono text-label-mono" href="#">隐私</a>
               <a class="text-secondary-fixed-variant hover:text-primary transition-colors opacity-80 hover:opacity-100 font-label-mono text-label-mono" href="#">条款</a>
