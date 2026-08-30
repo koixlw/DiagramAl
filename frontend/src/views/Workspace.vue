@@ -41,7 +41,7 @@
       <!-- TopNavBar -->
       <header class="bg-surface border-b border-outline-variant flex justify-between items-center w-full px-gutter h-16 flex-shrink-0 z-20">
         <div class="flex items-center gap-4">
-          <span class="font-label-mono text-label-mono text-secondary">Workspace / 流程图</span>
+          <span class="font-label-mono text-label-mono text-secondary">Workspace / Flowcharts</span>
         </div>
         <div class="flex items-center gap-2 text-primary">
           <button class="p-2 hover:bg-surface-container-low transition-colors rounded-full flex items-center justify-center">
