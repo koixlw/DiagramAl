@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagram AI · 智能图生成器</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Noto Sans SC"', '"Outfit"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+            display: ['"Outfit"', 'sans-serif'],
+          },
+          colors: {
+            blueprint: {
+              50: '#e8f4f8',
+              100: '#c5e4ed',
+              200: '#a0d4e2',
+              300: '#7bc4d7',
+              400: '#56b4cc',
+              500: '#31a4c1',
+              600: '#2a8fa8',
+              700: '#237a8f',
+              800: '#1c6576',
+              900: '#15505d',
+              950: '#0e3b44',
+            },
+            draft: {
+              50: '#f4f6f9',
+              100: '#e2e7ee',
+              200: '#c7ceda',
+              300: '#a4afc4',
+              400: '#7e8ba5',
+              500: '#636f88',
+              600: '#515b71',
+              700: '#454d60',
+              800: '#3d4454',
+              900: '#373d4a',
+              950: '#12141a',
+            },
+            accent: {
+              cyan: '#22d3ee',
+              amber: '#fbbf24',
+              rose: '#fb7185',
+              emerald: '#34d399',
+            }
+          },
+          animation: {
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'thinking': 'thinking 1.5s ease-in-out infinite',
+            'fade-in': 'fadeIn 0.4s ease-out forwards',
+            'slide-up': 'slideUp 0.5s ease-out forwards',
+            'grid-fade': 'gridFade 0.8s ease-out forwards',
+          },
+          keyframes: {
+            thinking: {
+              '0%, 100%': { opacity: '0.3', transform: 'translateY(0)' },
+              '50%': { opacity: '1', transform: 'translateY(-4px)' },
+            },
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            },
+            slideUp: {
+              '0%': { opacity: '0', transform: 'translateY(20px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+            gridFade: {
+              '0%': { opacity: '0', transform: 'scale(0.95)' },
+              '100%': { opacity: '1', transform: 'scale(1)' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Noto Sans SC', 'Outfit', sans-serif;
+      overflow: hidden;
+    }
+
+    /* Dot grid background for canvas */
+    .canvas-grid {
+      background-image: radial-gradient(circle, rgba(99, 111, 136, 0.15) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+    .dark .canvas-grid {
+      background-image: radial-gradient(circle, rgba(34, 211, 238, 0.08) 1px, transparent 1px);
+    }
+
+    /* Ruler edge effect */
+    .ruler-h {
+      background: repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 23px,
+        rgba(99, 111, 136, 0.3) 23px,
+        rgba(99, 111, 136, 0.3) 24px
+      );
+    }
+    .dark .ruler-h {
+      background: repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 23px,
+        rgba(34, 211, 238, 0.15) 23px,
+        rgba(34, 211, 238, 0.15) 24px
+      );
+    }
+    .ruler-v {
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 23px,
+        rgba(99, 111, 136, 0.3) 23px,
+        rgba(99, 111, 136, 0.3) 24px
+      );
+    }
+    .dark .ruler-v {
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 23px,
+        rgba(34, 211, 238, 0.15) 23px,
+        rgba(34, 211, 238, 0.15) 24px
+      );
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(99, 111, 136, 0.3); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(99, 111, 136, 0.5); }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(34, 211, 238, 0.2); }
+
+    /* Textarea focus effect */
+    textarea:focus {
+      box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.3);
+    }
+
+    /* Toggle switch */
+    .toggle-track {
+      transition: background-color 0.3s ease;
+    }
+    .toggle-track.active {
+      background-color: rgba(34, 211, 238, 0.2);
+      border-color: rgba(34, 211, 238, 0.5);
+    }
+
+    /* Tab styles */
+    .tab-btn {
+      transition: all 0.25s ease;
+      position: relative;
+    }
+    .tab-btn.active {
+      color: #22d3ee;
+      background: rgba(34, 211, 238, 0.08);
+    }
+    .tab-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 20%;
+      right: 20%;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, #22d3ee, transparent);
+      border-radius: 1px;
+    }
+
+    /* Button glow */
+    .btn-generate {
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-generate::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.1) 50%, transparent 60%);
+      transform: translateX(-100%);
+      transition: transform 0.6s ease;
+    }
+    .btn-generate:hover::before {
+      transform: translateX(100%);
+    }
+
+    /* Thinking dots */
+    .thinking-dot {
+      animation: thinking 1.4s ease-in-out infinite;
+    }
+    .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+    .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    /* Toast slide-in */
+    .toast-enter {
+      animation: slideInRight 0.4s ease-out forwards;
+    }
+    @keyframes slideInRight {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .toast-exit {
+      animation: slideOutRight 0.3s ease-in forwards;
+    }
+    @keyframes slideOutRight {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
+
+    /* SVG canvas transitions */
+    #svg-canvas {
+      transition: transform 0.15s ease-out;
+    }
+
+    /* Status bar coordinate display */
+    .coord-display {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Light mode overrides */
+    html:not(.dark) .tab-btn.active {
+      color: #0891b2;
+      background: rgba(8, 145, 178, 0.08);
+    }
+    html:not(.dark) .tab-btn.active::after {
+      background: linear-gradient(90deg, transparent, #0891b2, transparent);
+    }
+    html:not(.dark) .btn-generate {
+      background: linear-gradient(135deg, #0891b2, #0e7490);
+    }
+    html:not(.dark) textarea:focus {
+      box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.3);
+    }
+
+    /* SVG element hover effects */
+    .svg-node {
+      transition: filter 0.2s ease;
+      cursor: pointer;
+    }
+    .svg-node:hover {
+      filter: brightness(1.15) drop-shadow(0 0 8px rgba(34, 211, 238, 0.3));
+    }
+
+    /* Tooltip */
+    .tooltip {
+      position: relative;
+    }
+    .tooltip::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%) translateY(4px);
+      padding: 4px 10px;
+      background: rgba(18, 20, 26, 0.9);
+      color: #e2e7ee;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      border-radius: 4px;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.2s ease;
+    }
+    .tooltip:hover::after {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body class="bg-draft-50 dark:bg-draft-950 text-draft-700 dark:text-draft-200 h-screen flex flex-col">
+
+  <!-- Top Status Bar -->
+  <header class="h-10 flex items-center justify-between px-4 border-b border-draft-200 dark:border-draft-800 bg-white dark:bg-draft-900/80 backdrop-blur-sm shrink-0 select-none">
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="text-accent-cyan">
+          <rect x="1" y="1" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5"/>
+          <rect x="12" y="12" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8 4.5H12M12 4.5V8.5M12 4.5L15.5 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          <circle cx="16" cy="1" r="0.8" fill="currentColor"/>
+        </svg>
+        <span class="font-display font-semibold text-sm tracking-wide text-draft-800 dark:text-draft-100">Diagram AI</span>
+        <span class="text-[10px] font-mono text-draft-400 dark:text-draft-500 ml-1 px-1.5 py-0.5 rounded bg-draft-100 dark:bg-draft-800">v0.1</span>
+      </div>
+      <div class="h-4 w-px bg-draft-200 dark:bg-draft-700"></div>
+      <span class="text-xs text-draft-400 dark:text-draft-500 font-mono" id="status-text">就绪</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span class="text-xs font-mono text-draft-400 dark:text-draft-500 coord-display" id="coord-display">x: 0 &nbsp;y: 0</span>
+      <span class="text-xs font-mono text-draft-400 dark:text-draft-500" id="zoom-level">100%</span>
+      <div class="h-4 w-px bg-draft-200 dark:bg-draft-700"></div>
+      <!-- Dark mode toggle -->
+      <button id="theme-toggle" class="tooltip p-1.5 rounded hover:bg-draft-100 dark:hover:bg-draft-800 transition-colors" data-tooltip="切换主题">
+        <i class="fa fa-moon-o text-sm dark:hidden text-draft-500"></i>
+        <i class="fa fa-sun-o text-sm hidden dark:block text-accent-amber"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- Left Sidebar: Controls -->
+    <aside class="w-80 shrink-0 border-r border-draft-200 dark:border-draft-800 bg-white dark:bg-draft-900/50 flex flex-col overflow-y-auto">
+
+      <!-- Diagram Type Selector -->
+      <div class="p-4 border-b border-draft-100 dark:border-draft-800/50">
+        <label class="text-[10px] font-mono uppercase tracking-widest text-draft-400 dark:text-draft-500 mb-3 block">图类型</label>
+        <div class="flex gap-1 p-1 bg-draft-100 dark:bg-draft-800/50 rounded-lg">
+          <button class="tab-btn active flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all" data-type="flowchart" onclick="switchTab(this)">
+            <i class="fa fa-sitemap mr-1.5"></i>流程图
+          </button>
+          <button class="tab-btn flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all" data-type="er" onclick="switchTab(this)">
+            <i class="fa fa-database mr-1.5"></i>ER图
+          </button>
+        </div>
+      </div>
+
+      <!-- Description Input -->
+      <div class="p-4 border-b border-draft-100 dark:border-draft-800/50">
+        <div class="flex items-center justify-between mb-3">
+          <label class="text-[10px] font-mono uppercase tracking-widest text-draft-400 dark:text-draft-500">描述</label>
+          <button class="tooltip text-[10px] text-accent-cyan/70 hover:text-accent-cyan transition-colors font-mono px-1.5 py-0.5 rounded border border-draft-200 dark:border-draft-700 hover:border-accent-cyan/30" data-tooltip="加载示例" onclick="loadExample()">
+            <i class="fa fa-magic mr-1"></i>示例
+          </button>
+        </div>
+        <textarea
+          id="prompt-input"
+          class="w-full h-44 bg-draft-50 dark:bg-draft-800/40 border border-draft-200 dark:border-draft-700 rounded-lg px-3 py-2.5 text-sm font-sans leading-relaxed resize-none outline-none transition-all placeholder:text-draft-400 dark:placeholder:text-draft-600"
+          placeholder="用自然语言描述你想生成的图形...&#10;&#10;例如：判断一个数是否为质数的流程"
+        ></textarea>
+        <div class="flex items-center justify-between mt-2">
+          <span class="text-[10px] font-mono text-draft-400 dark:text-draft-500" id="char-count">0 字符</span>
+          <span class="text-[10px] font-mono text-draft-400 dark:text-draft-500">
+            <i class="fa fa-info-circle mr-1"></i>描述越详细，结果越准确
+          </span>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="p-4 border-b border-draft-100 dark:border-draft-800/50">
+        <button
+          id="btn-generate"
+          class="btn-generate w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-blueprint-700 to-blueprint-600 hover:from-blueprint-600 hover:to-blueprint-500 text-white font-medium text-sm transition-all duration-300 shadow-lg shadow-blueprint-900/20 hover:shadow-blueprint-900/30 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-blueprint-900/20"
+          onclick="generate()"
+        >
+          <i class="fa fa-bolt mr-2"></i>生成
+        </button>
+        <button
+          id="btn-regenerate"
+          class="w-full mt-2 py-2 px-4 rounded-lg border border-draft-200 dark:border-draft-700 text-draft-500 dark:text-draft-400 text-sm hover:bg-draft-50 dark:hover:bg-draft-800/40 hover:text-draft-700 dark:hover:text-draft-200 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          onclick="regenerate()"
+          disabled
+        >
+          <i class="fa fa-refresh mr-2"></i>重新生成
+        </button>
+      </div>
+
+      <!-- Quick Tips -->
+      <div class="p-4 flex-1">
+        <label class="text-[10px] font-mono uppercase tracking-widest text-draft-400 dark:text-draft-500 mb-3 block">提示</label>
+        <div class="space-y-2" id="tips-container">
+          <div class="flex items-start gap-2 text-xs text-draft-500 dark:text-draft-400">
+            <i class="fa fa-lightbulb-o text-accent-amber mt-0.5 shrink-0"></i>
+            <span id="tip-text">指定实体和关系名称，ER 图会更精确</span>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- Right Main: SVG Canvas -->
+    <main class="flex-1 flex flex-col overflow-hidden relative">
+
+      <!-- Canvas Toolbar -->
+      <div class="absolute top-3 right-3 z-10 flex items-center gap-1 p-1.5 bg-white/90 dark:bg-draft-800/90 backdrop-blur-sm rounded-lg border border-draft-200 dark:border-draft-700 shadow-sm" id="canvas-toolbar" style="display: none;">
+        <button class="tooltip p-1.5 rounded hover:bg-draft-100 dark:hover:bg-draft-700 transition-colors text-draft-500 dark:text-draft-400" data-tooltip="放大" onclick="zoomIn()">
+          <i class="fa fa-plus text-sm"></i>
+        </button>
+        <button class="tooltip p-1.5 rounded hover:bg-draft-100 dark:hover:bg-draft-700 transition-colors text-draft-500 dark:text-draft-400" data-tooltip="缩小" onclick="zoomOut()">
+          <i class="fa fa-minus text-sm"></i>
+        </button>
+        <button class="tooltip p-1.5 rounded hover:bg-draft-100 dark:hover:bg-draft-700 transition-colors text-draft-500 dark:text-draft-400" data-tooltip="适应窗口" onclick="fitToScreen()">
+          <i class="fa fa-expand text-sm"></i>
+        </button>
+        <div class="w-px h-4 bg-draft-200 dark:bg-draft-700 mx-0.5"></div>
+        <button class="tooltip p-1.5 rounded hover:bg-draft-100 dark:hover:bg-draft-700 transition-colors text-draft-500 dark:text-draft-400" data-tooltip="下载 SVG" onclick="downloadSVG()">
+          <i class="fa fa-file-code-o text-sm"></i>
+        </button>
+        <button class="tooltip p-1.5 rounded hover:bg-draft-100 dark:hover:bg-draft-700 transition-colors text-draft-500 dark:text-draft-400" data-tooltip="下载 PNG" onclick="downloadPNG()">
+          <i class="fa fa-file-image-o text-sm"></i>
+        </button>
+      </div>
+
+      <!-- Canvas Area -->
+      <div class="flex-1 canvas-grid relative overflow-hidden" id="canvas-area" onmousemove="updateCoords(event)" onwheel="handleWheel(event)">
+
+        <!-- Ruler edges -->
+        <div class="ruler-h absolute top-0 left-8 right-0 h-6 opacity-50"></div>
+        <div class="ruler-v absolute top-6 left-0 bottom-0 w-6 opacity-50"></div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <div class="animate-pulse-slow mb-6">
+            <svg width="80" height="80" viewBox="0 0 80 80" fill="none" class="text-draft-300 dark:text-draft-700">
+              <rect x="8" y="8" width="24" height="24" rx="3" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3"/>
+              <rect x="48" y="48" width="24" height="24" rx="3" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3"/>
+              <path d="M32 20H48M48 20V36M48 20L54 14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="55" cy="13" r="1.5" fill="currentColor"/>
+              <circle cx="20" cy="44" r="1" fill="currentColor" opacity="0.4"/>
+              <circle cx="60" cy="36" r="1" fill="currentColor" opacity="0.4"/>
+              <circle cx="36" cy="60" r="1" fill="currentColor" opacity="0.4"/>
+            </svg>
+          </div>
+          <p class="text-sm font-medium text-draft-400 dark:text-draft-600 mb-2">画布为空</p>
+          <p class="text-xs text-draft-400/70 dark:text-draft-600/50 font-mono">输入描述并点击「生成」开始</p>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading-state" class="absolute inset-0 flex flex-col items-center justify-center bg-white/80 dark:bg-draft-950/80 backdrop-blur-sm hidden z-20">
+          <div class="flex items-center gap-1.5 mb-4">
+            <div class="thinking-dot w-2 h-2 rounded-full bg-accent-cyan"></div>
+            <div class="thinking-dot w-2 h-2 rounded-full bg-accent-cyan"></div>
+            <div class="thinking-dot w-2 h-2 rounded-full bg-accent-cyan"></div>
+          </div>
+          <p class="text-sm font-medium text-draft-600 dark:text-draft-300 mb-1">AI 正在分析中...</p>
+          <p class="text-xs text-draft-400 dark:text-draft-500 font-mono" id="loading-detail">理解描述，构建图形结构</p>
+        </div>
+
+        <!-- SVG Container -->
+        <div id="svg-container" class="absolute inset-0 flex items-center justify-center hidden">
+          <svg id="svg-canvas" class="w-full h-full"></svg>
+        </div>
+
+      </div>
+
+      <!-- Bottom Status Bar -->
+      <div class="h-7 flex items-center justify-between px-4 border-t border-draft-200 dark:border-draft-800 bg-white dark:bg-draft-900/80 text-[11px] text-draft-400 dark:text-draft-500 shrink-0 select-none">
+        <div class="flex items-center gap-3 font-mono">
+          <span id="node-count">节点: 0</span>
+          <span id="edge-count">连线: 0</span>
+        </div>
+        <div class="flex items-center gap-3 font-mono">
+          <span id="render-time"></span>
+          <div class="flex items-center gap-1.5">
+            <div class="w-1.5 h-1.5 rounded-full bg-accent-emerald" id="status-dot"></div>
+            <span id="status-label">已连接</span>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed top-14 right-4 z-50 flex flex-col gap-2"></div>
+
+  <script>
+    // ============================================================
+    // State
+    // ============================================================
+    let currentType = 'flowchart';
+    let currentData = null;
+    let zoom = 1;
+    let panX = 0, panY = 0;
+    let isDragging = false;
+    let dragStartX = 0, dragStartY = 0;
+    let dragStartPanX = 0, dragStartPanY = 0;
+
+    // ============================================================
+    // Theme Toggle
+    // ============================================================
+    const themeToggle = document.getElementById('theme-toggle');
+    themeToggle.addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+      const isDark = document.documentElement.classList.contains('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      if (currentData) renderDiagram(currentData, currentType);
+    });
+
+    // Restore theme
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'light') {
+      document.documentElement.classList.remove('dark');
+    }
+
+    // ============================================================
+    // Tab Switching
+    // ============================================================
+    function switchTab(btn) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentType = btn.dataset.type;
+      updateTips();
+      document.getElementById('prompt-input').placeholder = currentType === 'flowchart'
+        ? '用自然语言描述你想生成的流程图...\n\n例如：判断一个数是否为质数的流程'
+        : '用自然语言描述你想生成的 ER 图...\n\n例如：学生选课系统的实体关系';
+    }
+
+    // ============================================================
+    // Character Count
+    // ============================================================
+    const promptInput = document.getElementById('prompt-input');
+    const charCount = document.getElementById('char-count');
+    promptInput.addEventListener('input', () => {
+      charCount.textContent = `${promptInput.value.length} 字符`;
+    });
+
+    // ============================================================
+    // Tips
+    // ============================================================
+    const tips = {
+      flowchart: [
+        '指定流程的起点和终点，结果更清晰',
+        '包含判断分支的描述，流程图会更完整',
+        '描述循环结构时注明条件和方向',
+      ],
+      er: [
+        '指定实体和关系名称，ER 图会更精确',
+        '注明主键属性，图中会以下划线显示',
+        '明确基数关系（1:1, 1:N, M:N）',
+      ]
+    };
+
+    function updateTips() {
+      const tipList = tips[currentType];
+      const tip = tipList[Math.floor(Math.random() * tipList.length)];
+      document.getElementById('tip-text').textContent = tip;
+    }
+
+    // ============================================================
+    // Example Loader
+    // ============================================================
+    function loadExample() {
+      const examples = {
+        flowchart: '判断一个数是否为质数：从输入一个大于1的整数n开始，设置i=2，判断i是否小于等于n的平方根，如果是则判断n是否能被i整除，如果能整除则n不是质数结束，否则i加1继续循环判断，如果循环结束都没找到能整除的因子，则n是质数',
+        er: '学生选课系统：学生实体包含学号（主键）、姓名、邮箱、入学日期；课程实体包含课程号（主键）、名称、学分、学分；教师实体包含工号（主键）、姓名、职称；学生和课程之间是多对多的选课关系，包含选课日期和成绩属性；教师和课程之间是一对多的授课关系'
+      };
+      promptInput.value = examples[currentType];
+      charCount.textContent = `${promptInput.value.length} 字符`;
+    }
+
+    // ============================================================
+    // Coordinate Display
+    // ============================================================
+    function updateCoords(e) {
+      const rect = document.getElementById('canvas-area').getBoundingClientRect();
+      const x = Math.round(e.clientX - rect.left);
+      const y = Math.round(e.clientY - rect.top);
+      document.getElementById('coord-display').innerHTML = `x: ${x} &nbsp;y: ${y}`;
+    }
+
+    // ============================================================
+    // Zoom
+    // ============================================================
+    function updateTransform() {
+      const svg = document.getElementById('svg-canvas');
+      svg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+      document.getElementById('zoom-level').textContent = `${Math.round(zoom * 100)}%`;
+    }
+
+    function zoomIn() {
+      zoom = Math.min(zoom * 1.2, 5);
+      updateTransform();
+    }
+
+    function zoomOut() {
+      zoom = Math.max(zoom / 1.2, 0.1);
+      updateTransform();
+    }
+
+    function fitToScreen() {
+      zoom = 1;
+      panX = 0;
+      panY = 0;
+      updateTransform();
+    }
+
+    function handleWheel(e) {
+      if (!currentData) return;
+      e.preventDefault();
+      if (e.deltaY < 0) {
+        zoom = Math.min(zoom * 1.1, 5);
+      } else {
+        zoom = Math.max(zoom / 1.1, 0.1);
+      }
+      updateTransform();
+    }
+
+    // Pan with mouse drag
+    const canvasArea = document.getElementById('canvas-area');
+    canvasArea.addEventListener('mousedown', (e) => {
+      if (!currentData || e.target.closest('#svg-canvas') === null && e.target.id !== 'svg-canvas') return;
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      dragStartPanX = panX;
+      dragStartPanY = panY;
+      canvasArea.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      panX = dragStartPanX + (e.clientX - dragStartX);
+      panY = dragStartPanY + (e.clientY - dragStartY);
+      updateTransform();
+    });
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+      canvasArea.style.cursor = '';
+    });
+
+    // ============================================================
+    // API Interaction
+    // ============================================================
+    async function generate() {
+      const input = promptInput.value.trim();
+      if (!input) {
+        showToast('请输入描述内容', 'error');
+        return;
+      }
+
+      setLoading(true);
+      setStatus('正在调用 AI 模型...', 'pending');
+
+      try {
+        const response = await fetch('http://localhost:8000/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: currentType,
+            description: input
+          })
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({ detail: '未知错误' }));
+          throw new Error(err.detail || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        currentData = data;
+        renderDiagram(data, currentType);
+        setStatus('生成完成', 'success');
+        showToast('图表生成成功', 'success');
+        document.getElementById('btn-regenerate').disabled = false;
+        document.getElementById('canvas-toolbar').style.display = 'flex';
+
+        const renderStart = performance.now();
+        const renderTime = (performance.now() - renderStart).toFixed(0);
+        document.getElementById('render-time').textContent = `渲染: ${renderTime}ms`;
+
+      } catch (err) {
+        console.error('Generation error:', err);
+        setStatus(`错误: ${err.message}`, 'error');
+        showToast(err.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function regenerate() {
+      if (!currentData || !promptInput.value.trim()) return;
+
+      setLoading(true);
+      setStatus('正在重新生成...', 'pending');
+
+      try {
+        const response = await fetch('http://localhost:8000/api/regenerate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: currentType,
+            description: promptInput.value.trim()
+          })
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({ detail: '未知错误' }));
+          throw new Error(err.detail || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        currentData = data;
+        renderDiagram(data, currentType);
+        setStatus('重新生成完成', 'success');
+        showToast('图表已更新', 'success');
+
+      } catch (err) {
+        console.error('Regeneration error:', err);
+        setStatus(`错误: ${err.message}`, 'error');
+        showToast(err.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // ============================================================
+    // Loading / Status
+    // ============================================================
+    function setLoading(loading) {
+      const loadingState = document.getElementById('loading-state');
+      const btnGenerate = document.getElementById('btn-generate');
+      if (loading) {
+        loadingState.classList.remove('hidden');
+        btnGenerate.disabled = true;
+        const loadingDetail = document.getElementById('loading-detail');
+        const messages = [
+          '理解描述，构建图形结构',
+          'AI 正在思考中...',
+          '解析实体和关系',
+          '即将完成...'
+        ];
+        let idx = 0;
+        const interval = setInterval(() => {
+          idx = (idx + 1) % messages.length;
+          loadingDetail.textContent = messages[idx];
+        }, 1500);
+        loadingState.dataset.interval = interval;
+      } else {
+        loadingState.classList.add('hidden');
+        btnGenerate.disabled = false;
+        clearInterval(parseInt(loadingState.dataset.interval));
+      }
+    }
+
+    function setStatus(text, type) {
+      document.getElementById('status-text').textContent = text;
+      const dot = document.getElementById('status-dot');
+      const label = document.getElementById('status-label');
+      dot.className = 'w-1.5 h-1.5 rounded-full';
+      if (type === 'success') {
+        dot.classList.add('bg-accent-emerald');
+        label.textContent = '已完成';
+      } else if (type === 'error') {
+        dot.classList.add('bg-accent-rose');
+        label.textContent = '错误';
+      } else if (type === 'pending') {
+        dot.classList.add('bg-accent-amber', 'animate-pulse');
+        label.textContent = '处理中';
+      } else {
+        dot.classList.add('bg-accent-emerald');
+        label.textContent = '已连接';
+      }
+    }
+
+    // ============================================================
+    // Toast Notifications
+    // ============================================================
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      const colors = {
+        success: 'border-accent-emerald/50 bg-draft-800/95 text-accent-emerald',
+        error: 'border-accent-rose/50 bg-draft-800/95 text-accent-rose',
+        info: 'border-accent-cyan/50 bg-draft-800/95 text-accent-cyan',
+      };
+      const icons = {
+        success: 'fa-check-circle',
+        error: 'fa-exclamation-circle',
+        info: 'fa-info-circle',
+      };
+      toast.className = `toast-enter flex items-center gap-2 px-4 py-2.5 rounded-lg border ${colors[type]} backdrop-blur-sm shadow-lg text-sm font-sans`;
+      toast.innerHTML = `<i class="fa ${icons[type]}"></i><span>${message}</span>`;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.classList.remove('toast-enter');
+        toast.classList.add('toast-exit');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    // ============================================================
+    // Diagram Rendering
+    // ============================================================
+    function renderDiagram(data, type) {
+      document.getElementById('empty-state').classList.add('hidden');
+      document.getElementById('svg-container').classList.remove('hidden');
+
+      const svg = document.getElementById('svg-canvas');
+      svg.innerHTML = '';
+
+      if (type === 'flowchart') {
+        renderFlowchart(svg, data);
+      } else {
+        renderERDiagram(svg, data);
+      }
+
+      // Update counts
+      if (type === 'flowchart') {
+        document.getElementById('node-count').textContent = `节点: ${data.nodes?.length || 0}`;
+        document.getElementById('edge-count').textContent = `连线: ${data.edges?.length || 0}`;
+      } else {
+        document.getElementById('node-count').textContent = `实体: ${data.entities?.length || 0}`;
+        document.getElementById('edge-count').textContent = `关系: ${data.relationships?.length || 0}`;
+      }
+    }
+
+    function renderFlowchart(svg, data) {
+      const nodes = data.nodes || [];
+      const edges = data.edges || [];
+
+      // Use Dagre for layout
+      const g = new dagre.graphlib.Graph();
+      g.setGraph({ rankdir: 'TB', nodesep: 50, ranksep: 60, marginx: 40, marginy: 40 });
+      g.setDefaultEdgeLabel(() => ({}));
+
+      nodes.forEach(node => {
+        const dims = getNodeDimensions(node.type);
+        g.setNode(node.id, { width: dims.w, height: dims.h, label: node.label, type: node.type });
+      });
+
+      edges.forEach(edge => {
+        g.setEdge(edge.from, edge.to, { label: edge.label || '' });
+      });
+
+      dagre.layout(g);
+
+      // Calculate SVG size
+      const graphObj = g.graph();
+      const svgW = Math.max(graphObj.width + 80, 600);
+      const svgH = Math.max(graphObj.height + 80, 400);
+      svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+
+      // Defs: markers + filters
+      const defs = createSVGElement('defs');
+
+      // Arrow marker
+      const marker = createSVGElement('marker', {
+        id: 'arrowhead', viewBox: '0 0 10 7', refX: '10', refY: '3.5',
+        markerWidth: '8', markerHeight: '6', orient: 'auto'
+      });
+      const arrowPath = createSVGElement('path', {
+        d: 'M 0 0 L 10 3.5 L 0 7 Z',
+        fill: 'currentColor',
+        class: 'text-draft-400 dark:text-draft-500'
+      });
+      marker.appendChild(arrowPath);
+      defs.appendChild(marker);
+
+      // Glow filter
+      const filter = createSVGElement('filter', { id: 'glow', x: '-20%', y: '-20%', width: '140%', height: '140%' });
+      const blur = createSVGElement('feGaussianBlur', { stdDeviation: '3', result: 'blur' });
+      const merge = createSVGElement('feMerge');
+      merge.appendChild(createSVGElement('feMergeNode', { in: 'blur' }));
+      merge.appendChild(createSVGElement('feMergeNode', { in: 'SourceGraphic' }));
+      filter.appendChild(blur);
+      filter.appendChild(merge);
+      defs.appendChild(filter);
+
+      svg.appendChild(defs);
+
+      // Group for all elements
+      const group = createSVGElement('g', { class: 'flowchart-group' });
+
+      // Draw edges
+      edges.forEach(edge => {
+        const fromNode = g.node(edge.from);
+        const toNode = g.node(edge.to);
+        if (!fromNode || !toNode) return;
+
+        const path = createSVGElement('path', {
+          d: `M${fromNode.x},${fromNode.y + fromNode.height / 2} L${toNode.x},${toNode.y - toNode.height / 2}`,
+          fill: 'none',
+          stroke: 'currentColor',
+          class: 'text-draft-300 dark:text-draft-600',
+          'stroke-width': '1.5',
+          'marker-end': 'url(#arrowhead)',
+        });
+        group.appendChild(path);
+
+        // Edge label
+        if (edge.label) {
+          const midX = (fromNode.x + toNode.x) / 2;
+          const midY = (fromNode.y + toNode.y) / 2;
+          const labelBg = createSVGElement('rect', {
+            x: midX - 18, y: midY - 8, width: 36, height: 16, rx: 3,
+            fill: 'currentColor',
+            class: 'text-draft-50 dark:text-draft-900',
+            opacity: '0.9'
+          });
+          group.appendChild(labelBg);
+          const label = createSVGElement('text', {
+            x: midX, y: midY + 3,
+            'text-anchor': 'middle',
+            'font-size': '10',
+            'font-family': 'JetBrains Mono, monospace',
+            fill: 'currentColor',
+            class: 'text-draft-500 dark:text-draft-400'
+          });
+          label.textContent = edge.label;
+          group.appendChild(label);
+        }
+      });
+
+      // Draw nodes
+      nodes.forEach(node => {
+        const n = g.node(node.id);
+        if (!n) return;
+
+        const gNode = createSVGElement('g', {
+          class: 'svg-node',
+          transform: `translate(${n.x}, ${n.y})`
+        });
+
+        const shape = createNodeShape(node.type, n.width, n.height);
+        shape.setAttribute('fill', 'currentColor');
+        shape.setAttribute('stroke', 'currentColor');
+        shape.setAttribute('stroke-width', '1.5');
+
+        // Color by type
+        const typeColors = {
+          start: 'text-emerald-100 dark:text-emerald-900/60 stroke-emerald-400 dark:stroke-emerald-600',
+          end: 'text-rose-100 dark:text-rose-900/60 stroke-rose-400 dark:stroke-rose-600',
+          process: 'text-blueprint-50 dark:text-blueprint-900/40 stroke-blueprint-400 dark:stroke-blueprint-600',
+          decision: 'text-amber-50 dark:text-amber-900/40 stroke-amber-400 dark:stroke-amber-600',
+          io: 'text-purple-50 dark:text-purple-900/40 stroke-purple-400 dark:stroke-purple-600',
+          connector: 'text-draft-100 dark:text-draft-800/60 stroke-draft-400 dark:stroke-draft-600',
+        };
+
+        const cls = typeColors[node.type] || typeColors.process;
+        shape.setAttribute('class', cls);
+        shape.setAttribute('filter', 'url(#glow)');
+        gNode.appendChild(shape);
+
+        // Label
+        const text = createSVGElement('text', {
+          x: 0, y: node.type === 'decision' ? 2 : 4,
+          'text-anchor': 'middle',
+          'dominant-baseline': 'middle',
+          'font-size': node.type === 'decision' ? '10' : '11',
+          'font-family': 'Noto Sans SC, sans-serif',
+          'font-weight': node.type === 'decision' ? '500' : '400',
+          fill: 'currentColor',
+          class: node.type === 'decision' ? 'text-amber-800 dark:text-amber-200' : 'text-draft-700 dark:text-draft-200'
+        });
+        text.textContent = node.label;
+        gNode.appendChild(text);
+
+        group.appendChild(gNode);
+      });
+
+      svg.appendChild(group);
+    }
+
+    function createNodeShape(type, w, h) {
+      switch (type) {
+        case 'start':
+        case 'end':
+          return createSVGElement('rect', {
+            x: -w/2, y: -h/2, width: w, height: h, rx: h/2
+          });
+        case 'process':
+          return createSVGElement('rect', {
+            x: -w/2, y: -h/2, width: w, height: h, rx: 4
+          });
+        case 'decision':
+          return createSVGElement('polygon', {
+            points: `0,${-h/2} ${w/2},0 0,${h/2} ${-w/2},0`
+          });
+        case 'io':
+          return createSVGElement('polygon', {
+            points: `${-w/2 + 12},${-h/2} ${w/2},${-h/2} ${w/2 - 12},${h/2} ${-w/2},${h/2}`
+          });
+        case 'connector':
+          return createSVGElement('circle', {
+            cx: 0, cy: 0, r: Math.min(w, h) / 2
+          });
+        default:
+          return createSVGElement('rect', {
+            x: -w/2, y: -h/2, width: w, height: h, rx: 4
+          });
+      }
+    }
+
+    function getNodeDimensions(type) {
+      switch (type) {
+        case 'start':
+        case 'end':
+          return { w: 120, h: 36 };
+        case 'process':
+          return { w: 150, h: 44 };
+        case 'decision':
+          return { w: 130, h: 60 };
+        case 'io':
+          return { w: 140, h: 36 };
+        case 'connector':
+          return { w: 24, h: 24 };
+        default:
+          return { w: 120, h: 40 };
+      }
+    }
+
+    function renderERDiagram(svg, data) {
+      const entities = data.entities || [];
+      const relationships = data.relationships || [];
+
+      // Use D3 force simulation for layout
+      const nodes = [];
+      const links = [];
+
+      // Add entity nodes
+      entities.forEach(e => {
+        nodes.push({
+          id: `entity-${e.id}`,
+          refId: e.id,
+          type: 'entity',
+          name: e.name,
+          attributes: e.attributes || [],
+          width: 130,
+          height: Math.max(40, 30 + (e.attributes?.length || 0) * 18),
+        });
+      });
+
+      // Add relationship nodes
+      relationships.forEach(r => {
+        nodes.push({
+          id: `rel-${r.id}`,
+          refId: r.id,
+          type: 'relationship',
+          name: r.name,
+          attributes: r.attributes || [],
+          width: 90,
+          height: 50,
+          fromEntity: r.from_entity,
+          toEntity: r.to_entity,
+          fromCardinality: r.from_cardinality,
+          toCardinality: r.to_cardinality,
+        });
+      });
+
+      // Create links
+      relationships.forEach(r => {
+        links.push({ source: `entity-${r.from_entity}`, target: `rel-${r.id}` });
+        links.push({ source: `entity-${r.to_entity}`, target: `rel-${r.id}` });
+      });
+
+      const svgW = 800;
+      const svgH = 500;
+
+      const simulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(links).id(d => d.id).distance(180))
+        .force('charge', d3.forceManyBody().strength(-500))
+        .force('center', d3.forceCenter(svgW / 2, svgH / 2))
+        .force('collision', d3.forceCollide().radius(80))
+        .stop();
+
+      // Run simulation synchronously
+      for (let i = 0; i < 300; i++) simulation.tick();
+
+      svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+
+      const defs = createSVGElement('defs');
+
+      // Arrow marker for cardinality
+      const marker = createSVGElement('marker', {
+        id: 'er-arrow', viewBox: '0 0 10 7', refX: '10', refY: '3.5',
+        markerWidth: '7', markerHeight: '5', orient: 'auto'
+      });
+      marker.appendChild(createSVGElement('path', {
+        d: 'M 0 0 L 10 3.5 L 0 7 Z',
+        fill: 'currentColor',
+        class: 'text-draft-400 dark:text-draft-500'
+      }));
+      defs.appendChild(marker);
+
+      svg.appendChild(defs);
+
+      const group = createSVGElement('g', { class: 'er-group' });
+
+      // Draw links
+      links.forEach(link => {
+        const source = nodes.find(n => n.id === (link.source.id || link.source));
+        const target = nodes.find(n => n.id === (link.target.id || link.target));
+        if (!source || !target) return;
+
+        const line = createSVGElement('line', {
+          x1: source.x, y1: source.y,
+          x2: target.x, y2: target.y,
+          stroke: 'currentColor',
+          class: 'text-draft-300 dark:text-draft-600',
+          'stroke-width': '1.5',
+          'marker-end': 'url(#er-arrow)',
+        });
+        group.appendChild(line);
+      });
+
+      // Draw cardinality labels on links
+      relationships.forEach(r => {
+        const fromNode = nodes.find(n => n.refId === r.from_entity && n.type === 'entity');
+        const toNode = nodes.find(n => n.refId === r.to_entity && n.type === 'entity');
+        const relNode = nodes.find(n => n.refId === r.id && n.type === 'relationship');
+
+        if (fromNode && relNode) {
+          const midX = (fromNode.x + relNode.x) / 2;
+          const midY = (fromNode.y + relNode.y) / 2 - 10;
+          const label = createSVGElement('text', {
+            x: midX, y: midY,
+            'text-anchor': 'middle',
+            'font-size': '10',
+            'font-family': 'JetBrains Mono, monospace',
+            fill: 'currentColor',
+            class: 'text-accent-cyan dark:text-accent-cyan/70',
+          });
+          label.textContent = r.from_cardinality || '';
+          group.appendChild(label);
+        }
+
+        if (toNode && relNode) {
+          const midX = (toNode.x + relNode.x) / 2;
+          const midY = (toNode.y + relNode.y) / 2 - 10;
+          const label = createSVGElement('text', {
+            x: midX, y: midY,
+            'text-anchor': 'middle',
+            'font-size': '10',
+            'font-family': 'JetBrains Mono, monospace',
+            fill: 'currentColor',
+            class: 'text-accent-cyan dark:text-accent-cyan/70',
+          });
+          label.textContent = r.to_cardinality || '';
+          group.appendChild(label);
+        }
+      });
+
+      // Draw entity rectangles with attributes
+      nodes.filter(n => n.type === 'entity').forEach(node => {
+        const gNode = createSVGElement('g', {
+          class: 'svg-node',
+          transform: `translate(${node.x}, ${node.y})`
+        });
+
+        const h = node.height;
+        // Main rect
+        const rect = createSVGElement('rect', {
+          x: -node.width/2, y: -h/2,
+          width: node.width, height: h,
+          rx: 4,
+          fill: 'currentColor',
+          stroke: 'currentColor',
+          'stroke-width': '1.5',
+          class: 'text-blueprint-50 dark:text-blueprint-900/40 stroke-blueprint-400 dark:stroke-blueprint-600'
+        });
+        gNode.appendChild(rect);
+
+        // Separator line
+        const sep = createSVGElement('line', {
+          x1: -node.width/2, y1: -h/2 + 28,
+          x2: node.width/2, y2: -h/2 + 28,
+          stroke: 'currentColor',
+          class: 'stroke-blueprint-200 dark:stroke-blueprint-700',
+          'stroke-width': '1'
+        });
+        gNode.appendChild(sep);
+
+        // Entity name (bold)
+        const nameText = createSVGElement('text', {
+          x: 0, y: -h/2 + 18,
+          'text-anchor': 'middle',
+          'font-size': '12',
+          'font-weight': '600',
+          'font-family': 'Noto Sans SC, sans-serif',
+          fill: 'currentColor',
+          class: 'text-blueprint-800 dark:text-blueprint-200'
+        });
+        nameText.textContent = node.name;
+        gNode.appendChild(nameText);
+
+        // Attributes
+        node.attributes.forEach((attr, i) => {
+          const attrText = createSVGElement('text', {
+            x: 0, y: -h/2 + 42 + i * 18,
+            'text-anchor': 'middle',
+            'font-size': '10',
+            'font-family': 'JetBrains Mono, monospace',
+            fill: 'currentColor',
+            class: 'text-draft-500 dark:text-draft-400'
+          });
+          let display = attr.name;
+          if (attr.is_primary_key) {
+            display = `<u>${display}</u>`;
+          }
+          attrText.innerHTML = display;
+          gNode.appendChild(attrText);
+        });
+
+        group.appendChild(gNode);
+      });
+
+      // Draw relationship diamonds
+      nodes.filter(n => n.type === 'relationship').forEach(node => {
+        const gNode = createSVGElement('g', {
+          class: 'svg-node',
+          transform: `translate(${node.x}, ${node.y})`
+        });
+
+        const diamond = createSVGElement('polygon', {
+          points: `0,${-node.height/2} ${node.width/2},0 0,${node.height/2} ${-node.width/2},0`,
+          fill: 'currentColor',
+          stroke: 'currentColor',
+          'stroke-width': '1.5',
+          class: 'text-amber-50 dark:text-amber-900/40 stroke-amber-400 dark:stroke-amber-600'
+        });
+        gNode.appendChild(diamond);
+
+        const nameText = createSVGElement('text', {
+          x: 0, y: 3,
+          'text-anchor': 'middle',
+          'font-size': '10',
+          'font-weight': '500',
+          'font-family': 'Noto Sans SC, sans-serif',
+          fill: 'currentColor',
+          class: 'text-amber-800 dark:text-amber-200'
+        });
+        nameText.textContent = node.name;
+        gNode.appendChild(nameText);
+
+        group.appendChild(gNode);
+      });
+
+      svg.appendChild(group);
+    }
+
+    // ============================================================
+    // SVG Helper
+    // ============================================================
+    function createSVGElement(tag, attrs = {}) {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        el.setAttribute(k, v);
+      }
+      return el;
+    }
+
+    // ============================================================
+    // Download Functions
+    // ============================================================
+    function downloadSVG() {
+      if (!currentData) return;
+      const svgEl = document.getElementById('svg-canvas');
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svgEl);
+
+      // Add XML declaration and namespaces
+      if (!source.match(/^<\?xml/)) {
+        source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
+      }
+
+      const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `diagram-${currentType}-${Date.now()}.svg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('SVG 已下载', 'success');
+    }
+
+    function downloadPNG() {
+      if (!currentData) return;
+      const svgEl = document.getElementById('svg-canvas');
+      const serializer = new XMLSerializer();
+      const source = serializer.serializeToString(svgEl);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+
+      const svgBlob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+
+      img.onload = function() {
+        canvas.width = img.width * 2; // 2x for retina
+        canvas.height = img.height * 2;
+        ctx.scale(2, 2);
+        ctx.fillStyle = document.documentElement.classList.contains('dark') ? '#12141a' : '#f4f6f9';
+        ctx.fillRect(0, 0, img.width, img.height);
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+
+        canvas.toBlob(blob => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `diagram-${currentType}-${Date.now()}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }, 'image/png');
+        showToast('PNG 已下载', 'success');
+      };
+      img.src = url;
+    }
+
+    // ============================================================
+    // Keyboard Shortcut
+    // ============================================================
+    promptInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        generate();
+      }
+    });
+
+    // ============================================================
+    // Initial state
+    // ============================================================
+    updateTips();
+  </script>
+</body>
+</html>
