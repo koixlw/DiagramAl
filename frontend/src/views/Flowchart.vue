@@ -1,22 +1,20 @@
 <script setup>
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import dagre from 'dagre'
 
 const router = useRouter()
-const API_BASE = 'http://127.0.0.1:8000'
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
 const inputText = ref('用户发起请求\n验证用户身份\n如果 验证成功 -> 查询数据库\n    如果 数据存在 -> 返回结果 -> 结束\n    如果 数据不存在 -> 提示错误 -> 结束\n如果 验证失败 -> 拒绝访问 -> 结束')
 const loading = ref(false)
-const svgContent = ref('')
 const error = ref('')
+const hasDiagram = ref(false)
+const svgContent = ref('')
 const zoomLevel = ref(100)
-const svgContainer = ref(null)
+let currentZoom = 1
 
-// SVG namespace
-const SVG_NS = 'http://www.w3.org/2000/svg'
-
-const nodeDimensions = {
+const nodeDims = {
   start: { w: 130, h: 40 },
   end: { w: 130, h: 40 },
   process: { w: 150, h: 48 },
@@ -25,38 +23,36 @@ const nodeDimensions = {
   connector: { w: 30, h: 30 },
 }
 
-const nodeTypeColors = {
-  start: { fill: '#ecfdf5', stroke: '#10b981', text: '#065f46' },
-  end: { fill: '#fef2f2', stroke: '#ef4444', text: '#991b1b' },
-  process: { fill: '#eff6ff', stroke: '#3b82f6', text: '#1e40af' },
-  decision: { fill: '#fffbeb', stroke: '#f59e0b', text: '#92400e' },
-  io: { fill: '#f5f3ff', stroke: '#8b5cf6', text: '#5b21b6' },
-  connector: { fill: '#f9fafb', stroke: '#6b7280', text: '#374151' },
+const colors = {
+  start:     { fill: '#d1fae5', stroke: '#059669', text: '#064e3b' },
+  end:       { fill: '#fee2e2', stroke: '#dc2626', text: '#7f1d1d' },
+  process:   { fill: '#dbeafe', stroke: '#2563eb', text: '#1e3a5f' },
+  decision:  { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' },
+  io:        { fill: '#ede9fe', stroke: '#7c3aed', text: '#4c1d95' },
+  connector: { fill: '#f3f4f6', stroke: '#6b7280', text: '#1f2937' },
 }
 
 async function generate() {
   if (!inputText.value.trim()) return
   loading.value = true
   error.value = ''
-  svgContent.value = ''
+  hasDiagram.value = false
 
   try {
     const res = await fetch(`${API_BASE}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'flowchart',
-        description: inputText.value,
-      }),
+      body: JSON.stringify({ type: 'flowchart', description: inputText.value }),
     })
 
     if (!res.ok) {
-      const errData = await res.json().catch(() => ({}))
-      throw new Error(errData.detail || `请求失败 (${res.status})`)
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.detail || `请求失败 (${res.status})`)
     }
 
     const data = await res.json()
     renderFlowchart(data.data)
+    hasDiagram.value = true
   } catch (e) {
     error.value = e.message
   } finally {
@@ -72,223 +68,131 @@ function renderFlowchart(data) {
   g.setGraph({ rankdir: 'TB', nodesep: 50, ranksep: 70, marginx: 60, marginy: 60 })
   g.setDefaultEdgeLabel(() => ({}))
 
-  nodes.forEach((node) => {
-    const dim = nodeDimensions[node.type] || nodeDimensions.process
-    g.setNode(node.id, { ...dim, label: node.label, nodeType: node.type })
+  nodes.forEach(n => {
+    const d = nodeDims[n.type] || nodeDims.process
+    g.setNode(n.id, { ...d, label: n.label, nodeType: n.type })
   })
-
-  edges.forEach((edge) => {
-    g.setEdge(edge.from, edge.to, { label: edge.label || '' })
-  })
-
+  edges.forEach(e => g.setEdge(e.from, e.to, { label: e.label || '' }))
   dagre.layout(g)
 
-  const graphObj = g.graph()
-  const svgW = Math.max(graphObj.width + 120, 600)
-  const svgH = Math.max(graphObj.height + 120, 400)
+  const gw = g.graph()
+  const svgW = Math.max(gw.width + 120, 600)
+  const svgH = Math.max(gw.height + 120, 400)
 
-  const svg = document.createElementNS(SVG_NS, 'svg')
-  svg.setAttribute('width', svgW)
-  svg.setAttribute('height', svgH)
-  svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`)
-  svg.style.width = svgW + 'px'
-  svg.style.height = svgH + 'px'
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">`
+  svg += '<defs>'
+  svg += `<marker id="ah" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#94a3b8"/></marker>`
+  svg += `<marker id="aha" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#2563eb"/></marker>`
+  svg += '</defs>'
+  svg += '<g>'
 
-  // Defs
-  const defs = document.createElementNS(SVG_NS, 'defs')
+  // Edges
+  edges.forEach(edge => {
+    const from = g.node(edge.from)
+    const to = g.node(edge.to)
+    if (!from || !to) return
 
-  // Arrow marker
-  const marker = document.createElementNS(SVG_NS, 'marker')
-  marker.setAttribute('id', 'arrowhead')
-  marker.setAttribute('viewBox', '0 0 10 7')
-  marker.setAttribute('refX', '10')
-  marker.setAttribute('refY', '3.5')
-  marker.setAttribute('markerWidth', '8')
-  marker.setAttribute('markerHeight', '6')
-  marker.setAttribute('orient', 'auto')
-  const arrowPath = document.createElementNS(SVG_NS, 'path')
-  arrowPath.setAttribute('d', 'M 0 0 L 10 3.5 L 0 7 Z')
-  arrowPath.setAttribute('fill', '#94a3b8')
-  marker.appendChild(arrowPath)
-  defs.appendChild(marker)
+    const active = !!edge.label
+    const isDec = from.nodeType === 'decision' || to.nodeType === 'decision'
+    const sx = from.x, sy = from.y + from.height / 2
+    const ex = to.x, ey = to.y - to.height / 2
 
-  // Active arrow marker
-  const markerActive = document.createElementNS(SVG_NS, 'marker')
-  markerActive.setAttribute('id', 'arrowhead-active')
-  markerActive.setAttribute('viewBox', '0 0 10 7')
-  markerActive.setAttribute('refX', '10')
-  markerActive.setAttribute('refY', '3.5')
-  markerActive.setAttribute('markerWidth', '8')
-  markerActive.setAttribute('markerHeight', '6')
-  markerActive.setAttribute('orient', 'auto')
-  const arrowPathActive = document.createElementNS(SVG_NS, 'path')
-  arrowPathActive.setAttribute('d', 'M 0 0 L 10 3.5 L 0 7 Z')
-  arrowPathActive.setAttribute('fill', '#3b82f6')
-  markerActive.appendChild(arrowPathActive)
-  defs.appendChild(markerActive)
-
-  svg.appendChild(defs)
-
-  const group = document.createElementNS(SVG_NS, 'g')
-
-  // Draw edges
-  edges.forEach((edge) => {
-    const fromNode = g.node(edge.from)
-    const toNode = g.node(edge.to)
-    if (!fromNode || !toNode) return
-
-    const isDecision = fromNode.nodeType === 'decision' || toNode.nodeType === 'decision'
-    const isActive = !!edge.label
-
-    const path = document.createElementNS(SVG_NS, 'path')
-    const startX = fromNode.x
-    const startY = fromNode.y + fromNode.height / 2
-    const endX = toNode.x
-    const endY = toNode.y - toNode.height / 2
-
-    if (isDecision) {
-      // L-shaped path for decision branches
-      const midY = (startY + endY) / 2
-      path.setAttribute('d', `M${startX},${startY} L${startX},${midY} L${endX},${midY} L${endX},${endY}`)
+    let d
+    if (isDec) {
+      const my = (sy + ey) / 2
+      d = `M${sx},${sy} L${sx},${my} L${ex},${my} L${ex},${ey}`
     } else {
-      path.setAttribute('d', `M${startX},${startY} L${endX},${endY}`)
+      d = `M${sx},${sy} L${ex},${ey}`
     }
 
-    path.setAttribute('fill', 'none')
-    path.setAttribute('stroke', isActive ? '#3b82f6' : '#cbd5e1')
-    path.setAttribute('stroke-width', isActive ? '2' : '1.5')
-    path.setAttribute('marker-end', isActive ? 'url(#arrowhead-active)' : 'url(#arrowhead)')
-    group.appendChild(path)
+    const sw = active ? 2 : 1.5
+    const sc = active ? '#2563eb' : '#94a3b8'
+    const mk = active ? 'url(#aha)' : 'url(#ah)'
+    svg += `<path d="${d}" fill="none" stroke="${sc}" stroke-width="${sw}" marker-end="${mk}"/>`
 
-    // Edge label
     if (edge.label) {
-      let labelX, labelY
-      if (isDecision) {
-        const midY2 = (startY + endY) / 2
-        labelX = (startX + endX) / 2 + (edge.label === '否' ? 12 : -12)
-        labelY = midY2
+      let lx, ly
+      if (isDec) {
+        const my2 = (sy + ey) / 2
+        lx = (sx + ex) / 2 + (edge.label === '否' ? 14 : -14)
+        ly = my2
       } else {
-        labelX = (startX + endX) / 2
-        labelY = (startY + endY) / 2
+        lx = (sx + ex) / 2
+        ly = (sy + ey) / 2
       }
-
-      const labelBg = document.createElementNS(SVG_NS, 'rect')
-      const textW = edge.label.length * 12 + 12
-      labelBg.setAttribute('x', labelX - textW / 2)
-      labelBg.setAttribute('y', labelY - 10)
-      labelBg.setAttribute('width', textW)
-      labelBg.setAttribute('height', 20)
-      labelBg.setAttribute('rx', '4')
-      labelBg.setAttribute('fill', isActive ? '#eff6ff' : '#f8fafc')
-      labelBg.setAttribute('stroke', isActive ? '#bfdbfe' : '#e2e8f0')
-      labelBg.setAttribute('stroke-width', '1')
-      group.appendChild(labelBg)
-
-      const text = document.createElementNS(SVG_NS, 'text')
-      text.setAttribute('x', labelX)
-      text.setAttribute('y', labelY + 4)
-      text.setAttribute('text-anchor', 'middle')
-      text.setAttribute('font-size', '11')
-      text.setAttribute('font-family', 'Inter, sans-serif')
-      text.setAttribute('fill', isActive ? '#2563eb' : '#64748b')
-      text.setAttribute('font-weight', '500')
-      text.textContent = edge.label
-      group.appendChild(text)
+      const tw = edge.label.length * 12 + 16
+      const fc = active ? '#2563eb' : '#64748b'
+      const fb = active ? '#eff6ff' : '#f8fafc'
+      const sb = active ? '#bfdbfe' : '#e2e8f0'
+      svg += `<rect x="${lx - tw/2}" y="${ly - 10}" width="${tw}" height="20" rx="4" fill="${fb}" stroke="${sb}" stroke-width="1"/>`
+      svg += `<text x="${lx}" y="${ly + 4}" text-anchor="middle" font-size="11" font-family="Inter,sans-serif" fill="${fc}" font-weight="500">${edge.label}</text>`
     }
   })
 
-  // Draw nodes
-  nodes.forEach((node) => {
+  // Nodes
+  nodes.forEach(node => {
     const n = g.node(node.id)
     if (!n) return
-
-    const colors = nodeTypeColors[node.type] || nodeTypeColors.process
-    const gNode = document.createElementNS(SVG_NS, 'g')
-    gNode.setAttribute('transform', `translate(${n.x}, ${n.y})`)
-    gNode.style.cursor = 'pointer'
-
-    const shape = createShape(node.type, n.width, n.height)
-    shape.setAttribute('fill', colors.fill)
-    shape.setAttribute('stroke', colors.stroke)
-    shape.setAttribute('stroke-width', '1.5')
-    gNode.appendChild(shape)
-
-    const text = document.createElementNS(SVG_NS, 'text')
-    text.setAttribute('x', 0)
-    text.setAttribute('y', node.type === 'decision' ? 2 : 4)
-    text.setAttribute('text-anchor', 'middle')
-    text.setAttribute('dominant-baseline', 'middle')
-    text.setAttribute('font-size', node.type === 'decision' ? '12' : '12')
-    text.setAttribute('font-family', 'Inter, sans-serif')
-    text.setAttribute('fill', colors.text)
-    text.setAttribute('font-weight', node.type === 'decision' ? '500' : '400')
-    text.textContent = node.label
-    gNode.appendChild(text)
-
-    // Hover effect
-    gNode.addEventListener('mouseenter', () => {
-      shape.setAttribute('filter', 'drop-shadow(0 0 6px rgba(59,130,246,0.3))')
-    })
-    gNode.addEventListener('mouseleave', () => {
-      shape.removeAttribute('filter')
-    })
-
-    group.appendChild(gNode)
+    const c = colors[node.type] || colors.process
+    const cx = n.x, cy = n.y
+    const shape = makeShape(node.type, n.width, n.height, cx, cy, c)
+    svg += shape
+    svg += `<text x="${cx}" y="${cy + (node.type === 'decision' ? 2 : 4)}" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Inter,sans-serif" fill="${c.text}" font-weight="${node.type === 'decision' ? 500 : 400}">${node.label}</text>`
   })
 
-  svg.appendChild(group)
+  svg += '</g></svg>'
+  svgContent.value = svg
 
-  // Replace the canvas content
-  const canvasEl = document.getElementById('flowchart-canvas')
-  if (canvasEl) {
-    canvasEl.innerHTML = ''
-    canvasEl.appendChild(svg)
-    svgContent.value = svg.outerHTML
-  }
+  const el = document.getElementById('flowchart-canvas')
+  if (el) el.innerHTML = svg
 }
 
-function createShape(type, w, h) {
+function makeShape(type, w, h, cx, cy, c) {
   switch (type) {
     case 'start':
     case 'end':
-      const r = document.createElementNS(SVG_NS, 'rect')
-      r.setAttribute('x', -w / 2)
-      r.setAttribute('y', -h / 2)
-      r.setAttribute('width', w)
-      r.setAttribute('height', h)
-      r.setAttribute('rx', h / 2)
-      return r
+      return `<rect x="${cx - w/2}" y="${cy - h/2}" width="${w}" height="${h}" rx="${h/2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
     case 'process':
-      const rect = document.createElementNS(SVG_NS, 'rect')
-      rect.setAttribute('x', -w / 2)
-      rect.setAttribute('y', -h / 2)
-      rect.setAttribute('width', w)
-      rect.setAttribute('height', h)
-      rect.setAttribute('rx', '4')
-      return rect
-    case 'decision':
-      const polygon = document.createElementNS(SVG_NS, 'polygon')
-      polygon.setAttribute('points', `0,${-h / 2} ${w / 2},0 0,${h / 2} ${-w / 2},0`)
-      return polygon
-    case 'io':
-      const io = document.createElementNS(SVG_NS, 'polygon')
-      io.setAttribute('points', `${-w / 2 + 14},${-h / 2} ${w / 2},${-h / 2} ${w / 2 - 14},${h / 2} ${-w / 2},${h / 2}`)
-      return io
+      return `<rect x="${cx - w/2}" y="${cy - h/2}" width="${w}" height="${h}" rx="4" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
+    case 'decision': {
+      const hw = w/2, hh = h/2
+      return `<polygon points="${cx},${cy-hh} ${cx+hw},${cy} ${cx},${cy+hh} ${cx-hw},${cy}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
+    }
+    case 'io': {
+      const off = 14
+      return `<polygon points="${cx-w/2+off},${cy-h/2} ${cx+w/2},${cy-h/2} ${cx+w/2-off},${cy+h/2} ${cx-w/2},${cy+h/2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
+    }
     case 'connector':
-      const circle = document.createElementNS(SVG_NS, 'circle')
-      circle.setAttribute('cx', 0)
-      circle.setAttribute('cy', 0)
-      circle.setAttribute('r', Math.min(w, h) / 2)
-      return circle
+      return `<circle cx="${cx}" cy="${cy}" r="${Math.min(w,h)/2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
     default:
-      const d = document.createElementNS(SVG_NS, 'rect')
-      d.setAttribute('x', -w / 2)
-      d.setAttribute('y', -h / 2)
-      d.setAttribute('width', w)
-      d.setAttribute('height', h)
-      d.setAttribute('rx', '4')
-      return d
+      return `<rect x="${cx - w/2}" y="${cy - h/2}" width="${w}" height="${h}" rx="4" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.5"/>`
   }
+}
+
+function zoomIn() {
+  currentZoom = Math.min(currentZoom * 1.2, 3)
+  applyZoom()
+}
+function zoomOut() {
+  currentZoom = Math.max(currentZoom / 1.2, 0.3)
+  applyZoom()
+}
+function resetZoom() {
+  currentZoom = 1
+  applyZoom()
+}
+function applyZoom() {
+  zoomLevel.value = Math.round(currentZoom * 100)
+  const svg = document.querySelector('#flowchart-canvas svg')
+  if (svg) { svg.style.transform = `scale(${currentZoom})`; svg.style.transformOrigin = 'center top' }
+}
+function downloadSVG() {
+  if (!svgContent.value) return
+  const blob = new Blob([svgContent.value], { type: 'image/svg+xml' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = `flowchart-${Date.now()}.svg`; a.click()
+  URL.revokeObjectURL(url)
 }
 </script>
 
@@ -308,20 +212,20 @@ function createShape(type, w, h) {
         </nav>
       </div>
       <div class="flex items-center gap-2">
-        <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" title="Download" @click="downloadSVG" :disabled="!svgContent">
+        <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" @click="downloadSVG" :disabled="!svgContent">
           <span class="material-symbols-outlined">download</span>
         </button>
-        <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" title="Share">
+        <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors">
           <span class="material-symbols-outlined">share</span>
         </button>
-        <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" title="Code">
+        <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors">
           <span class="material-symbols-outlined">code</span>
         </button>
       </div>
     </header>
 
     <div class="flex flex-1 overflow-hidden relative">
-      <!-- Left Panel: Configuration -->
+      <!-- Left Panel -->
       <aside class="w-sidebar_width bg-surface-container-low border-r border-outline-variant flex flex-col z-40 flex-shrink-0 h-full">
         <div class="p-4 flex flex-col gap-4 flex-1 overflow-y-auto">
           <div>
@@ -378,9 +282,9 @@ function createShape(type, w, h) {
         </div>
       </aside>
 
-      <!-- Right Canvas: Preview -->
+      <!-- Right Canvas -->
       <main class="flex-1 bg-surface-bright dot-grid relative overflow-hidden flex flex-col">
-        <!-- Error Banner -->
+        <!-- Error -->
         <div v-if="error" class="absolute top-4 left-1/2 -translate-x-1/2 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg shadow-sm z-30 text-sm max-w-lg">
           <span class="material-symbols-outlined text-sm align-middle mr-1">error</span>
           {{ error }}
@@ -389,84 +293,37 @@ function createShape(type, w, h) {
 
         <!-- Toolbar -->
         <div class="absolute bottom-6 left-1/2 -translate-x-1/2 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-sm flex items-center gap-1 p-1 z-10">
-          <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" title="Zoom Out" @click="zoomOut" :disabled="!svgContent">
+          <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" @click="zoomOut" :disabled="!hasDiagram">
             <span class="material-symbols-outlined">remove</span>
           </button>
           <span class="font-label-mono text-label-mono text-on-surface-variant w-12 text-center">{{ zoomLevel }}%</span>
-          <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" title="Zoom In" @click="zoomIn" :disabled="!svgContent">
+          <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" @click="zoomIn" :disabled="!hasDiagram">
             <span class="material-symbols-outlined">add</span>
           </button>
           <div class="w-px h-6 bg-outline-variant mx-1"></div>
-          <button class="p-2 text-primary hover:bg-surface-container-low rounded transition-colors" title="Toggle Grid">
+          <button class="p-2 text-primary hover:bg-surface-container-low rounded transition-colors">
             <span class="material-symbols-outlined">grid_on</span>
           </button>
           <div class="w-px h-6 bg-outline-variant mx-1"></div>
-          <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors flex items-center gap-1 pr-3" title="Center View" @click="resetZoom" :disabled="!svgContent">
+          <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors flex items-center gap-1 pr-3" @click="resetZoom" :disabled="!hasDiagram">
             <span class="material-symbols-outlined">filter_center_focus</span>
             <span class="font-label-mono text-xs hidden sm:inline">居中</span>
           </button>
         </div>
 
-        <!-- Canvas Area -->
+        <!-- Canvas -->
         <div class="flex-1 relative w-full h-full overflow-auto p-8 flex items-center justify-center min-h-[600px] min-w-[800px]">
-          <!-- Empty State -->
-          <div v-if="!svgContent && !loading" class="flex flex-col items-center justify-center text-on-surface-variant">
+          <div v-if="!hasDiagram && !loading" class="flex flex-col items-center justify-center text-on-surface-variant">
             <span class="material-symbols-outlined text-6xl text-outline-variant mb-4">account_tree</span>
             <p class="font-label-mono text-label-mono">输入处理逻辑后点击「生成图表」</p>
           </div>
-
-          <!-- Loading State -->
           <div v-if="loading" class="flex flex-col items-center justify-center text-on-surface-variant">
             <span class="material-symbols-outlined text-4xl animate-spin mb-3">progress_activity</span>
             <p class="font-label-mono text-label-mono">AI 正在生成中...</p>
           </div>
-
-          <!-- Flowchart SVG -->
           <div id="flowchart-canvas" class="relative"></div>
         </div>
       </main>
     </div>
   </div>
 </template>
-
-<script>
-export default {
-  data() {
-    return {
-      currentZoom: 1,
-    }
-  },
-  methods: {
-    zoomIn() {
-      this.currentZoom = Math.min(this.currentZoom * 1.2, 3)
-      this.applyZoom()
-    },
-    zoomOut() {
-      this.currentZoom = Math.max(this.currentZoom / 1.2, 0.3)
-      this.applyZoom()
-    },
-    resetZoom() {
-      this.currentZoom = 1
-      this.applyZoom()
-    },
-    applyZoom() {
-      this.zoomLevel = Math.round(this.currentZoom * 100)
-      const svg = document.querySelector('#flowchart-canvas svg')
-      if (svg) {
-        svg.style.transform = `scale(${this.currentZoom})`
-        svg.style.transformOrigin = 'center top'
-      }
-    },
-    downloadSVG() {
-      if (!this.svgContent) return
-      const blob = new Blob([this.svgContent], { type: 'image/svg+xml' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `flowchart-${Date.now()}.svg`
-      a.click()
-      URL.revokeObjectURL(url)
-    },
-  },
-}
-</script>
