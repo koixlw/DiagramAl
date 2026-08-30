@@ -1,23 +1,22 @@
-from pydantic import BaseModel, Field
-from typing import List, Literal, Optional
-from enum import Enum
+from pydantic import BaseModel, Field, ConfigDict
+from typing import List, Literal, Optional, Union
 
 
 # ============================================================
 # 请求模型
 # ============================================================
 
-class DiagramType(str, Enum):
-    FLOWCHART = "flowchart"
-    ER = "er"
+DiagramType = Literal["flowchart", "er"]
 
 
 class DiagramGenerateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     type: DiagramType
     description: str = Field(..., min_length=1, description="用户对图表的自然语言描述")
 
 
 class DiagramRegenerateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     type: DiagramType
     description: str = Field(..., min_length=1, description="用户对图表的自然语言描述")
 
@@ -27,6 +26,7 @@ class DiagramRegenerateRequest(BaseModel):
 # ============================================================
 
 class FlowchartNode(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     id: str = Field(..., description="节点唯一标识")
     type: Literal["start", "end", "process", "decision", "io", "connector"] = Field(
         ..., description="节点类型"
@@ -35,8 +35,9 @@ class FlowchartNode(BaseModel):
 
 
 class FlowchartEdge(BaseModel):
-    from_node: str = Field(..., alias="from", description="起始节点 ID")
-    to_node: str = Field(..., alias="to", description="目标节点 ID")
+    model_config = ConfigDict(populate_by_name=True)
+    from_: str = Field(..., alias="from", description="起始节点 ID")
+    to: str = Field(..., alias="to", description="目标节点 ID")
     label: Optional[str] = Field(None, description="连线标签（如 是/否）")
 
 
@@ -50,17 +51,20 @@ class FlowchartData(BaseModel):
 # ============================================================
 
 class ERAttribute(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     name: str = Field(..., description="属性名称")
     is_primary_key: bool = Field(default=False, description="是否为主键")
 
 
 class EREntity(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     id: str = Field(..., description="实体唯一标识")
     name: str = Field(..., description="实体名称")
     attributes: List[ERAttribute] = Field(default_factory=list, description="属性列表")
 
 
 class ERRelationship(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     id: str = Field(..., description="关系唯一标识")
     name: str = Field(..., description="关系名称")
     from_entity: str = Field(..., description="起始实体 ID")
@@ -80,8 +84,9 @@ class ERDiagramData(BaseModel):
 # ============================================================
 
 class DiagramResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     type: DiagramType
-    data: FlowchartData | ERDiagramData
+    data: Union[FlowchartData, ERDiagramData]
 
 
 # ============================================================

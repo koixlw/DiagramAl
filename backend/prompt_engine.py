@@ -1,4 +1,10 @@
-from schemas import DiagramType
+def get_system_prompt(diagram_type: str) -> str:
+    if diagram_type == "flowchart":
+        return FLOWCHART_SYSTEM_PROMPT
+    elif diagram_type == "er":
+        return ER_DIAGRAM_SYSTEM_PROMPT
+    raise ValueError(f"Unknown diagram type: {diagram_type}")
+
 
 FLOWCHART_SYSTEM_PROMPT = """你是一个流程图生成专家。根据用户的自然语言描述，生成结构化的流程图数据。
 
@@ -31,11 +37,3 @@ ER_DIAGRAM_SYSTEM_PROMPT = """你是一个数据库设计专家。根据用户�
 - 关系: 菱形
 - 属性: 椭圆（由前端自动从实体属性生成）
 - 主键: 下划线显示"""
-
-
-def get_system_prompt(diagram_type: DiagramType) -> str:
-    if diagram_type == DiagramType.FLOWCHART:
-        return FLOWCHART_SYSTEM_PROMPT
-    elif diagram_type == DiagramType.ER:
-        return ER_DIAGRAM_SYSTEM_PROMPT
-    raise ValueError(f"Unknown diagram type: {diagram_type}")
