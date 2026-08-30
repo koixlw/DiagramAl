@@ -2,6 +2,9 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import dagre from 'dagre'
+import * as graphlib from 'graphlib'
+
+const Graph = graphlib.Graph
 
 const router = useRouter()
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
@@ -64,7 +67,7 @@ function renderFlowchart(data) {
   const nodes = data.nodes || []
   const edges = data.edges || []
 
-  const g = new dagre.graphlib.Graph()
+  const g = new Graph()
   g.setGraph({ rankdir: 'TB', nodesep: 50, ranksep: 70, marginx: 60, marginy: 60 })
   g.setDefaultEdgeLabel(() => ({}))
 
