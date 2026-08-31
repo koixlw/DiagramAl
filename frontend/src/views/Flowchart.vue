@@ -111,7 +111,7 @@ async function computeLayout(nodes, edges) {
       'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
       'elk.layered.cycleBreaking.strategy': 'GREEDY',
       'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
-      'elk.edgeRouting': 'ORTHOGONAL',
+      'elk.edgeRouting': 'POLYLINE',
       'elk.layered.mergeEdges': 'true',
       'elk.layered.feedbackEdges': 'true',
       'elk.layered.thoroughness': '10',
@@ -154,16 +154,6 @@ async function renderFlowchart(data) {
     elkMap[ln.id] = ln
   })
 
-  // ELK 边的映射
-  const elkEdgeMap = {}
-  layoutedGraph.edges?.forEach(le => {
-    const fromId = le.sources[0]
-    const toId = le.targets[0]
-    const key = `${fromId}->${toId}`
-    if (!elkEdgeMap[key]) elkEdgeMap[key] = []
-    elkEdgeMap[key].push(le)
-  })
-
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}" viewBox="0 0 ${canvasW} ${canvasH}" style="font-family:Inter,sans-serif">`
   svg += '<defs>'
   svg += `<marker id="ah" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="10" markerHeight="7" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#64748b"/></marker>`
@@ -175,24 +165,49 @@ async function renderFlowchart(data) {
   layoutedGraph.edges?.forEach(le => {
     const fromId = le.sources[0]
     const toId = le.targets[0]
-    // 找原始边的 label
     const origEdge = edges.find(e => e.from === fromId && e.to === toId)
     const active = !!origEdge?.label
     const sc = active ? '#2563eb' : '#64748b'
     const sw = active ? 2 : 1.5
     const mk = active ? 'url(#aha)' : 'url(#ah)'
 
-    // 构建 ELK 的正交路径
     const points = []
-    if (le.sourcePoint) points.push(`${le.sourcePoint.x},${le.sourcePoint.y}`)
-    if (le.junctionPoints) {
-      le.junctionPoints.forEach(jp => points.push(`${jp.x},${jp.y}`))
+
+    // 尝试 ELK 新版 sections 格式
+    if (le.sections && le.sections.length > 0) {
+      le.sections.forEach(sec => {
+        if (sec.startPoint) points.push(`${sec.startPoint.x},${sec.startPoint.y}`)
+        if (sec.bendPoints) sec.bendPoints.forEach(bp => points.push(`${bp.x},${bp.y}`))
+        if (sec.endPoint) points.push(`${sec.endPoint.x},${sec.endPoint.y}`)
+      })
     }
-    if (le.targetPoint) points.push(`${le.targetPoint.x},${le.targetPoint.y}`)
+    // 尝试 ELK 旧版格式
+    else if (le.sourcePoint) {
+      points.push(`${le.sourcePoint.x},${le.sourcePoint.y}`)
+      if (le.junctionPoints) le.junctionPoints.forEach(jp => points.push(`${jp.x},${jp.y}`))
+      if (le.targetPoint) points.push(`${le.targetPoint.x},${le.targetPoint.y}`)
+    }
 
-    const d = points.length > 1 ? `M${points.join(' L')}` : ''
+    // 兜底：只有当 ELK 完全没有返回路径时才用
+    if (points.length < 2) {
+      const fromNode = layoutedGraph.children?.find(n => n.id === fromId)
+      const toNode = layoutedGraph.children?.find(n => n.id === toId)
+      if (fromNode && toNode) {
+        const sx = fromNode.x + (fromNode.width || 0) / 2
+        const sy = fromNode.y + (fromNode.height || 0)
+        const ex = toNode.x + (toNode.width || 0) / 2
+        const ey = toNode.y
+        const midY = sy + (ey - sy) / 2
+        if (Math.abs(sx - ex) < 5) {
+          points.push(`${sx},${sy}`, `${ex},${ey}`)
+        } else {
+          points.push(`${sx},${sy}`, `${sx},${midY}`, `${ex},${midY}`, `${ex},${ey}`)
+        }
+      }
+    }
 
-    if (d) {
+    if (points.length >= 2) {
+      const d = `M${points.join(' L')}`
       svg += `<path d="${d}" fill="none" stroke="${sc}" stroke-width="${sw}" marker-end="${mk}" stroke-linecap="round" stroke-linejoin="round"/>`
     }
 
@@ -214,7 +229,7 @@ async function renderFlowchart(data) {
   // ---- 节点 ----
   layoutedGraph.children?.forEach(ln => {
     const origNode = nodes.find(n => n.id === ln.id)
-    if (!origNode || !ln.x || !ln.y) return
+    if (!origNode || ln.x == null || ln.y == null) return
     const nodeType = mapNodeType(origNode.type)
     const c = CL[nodeType] || CL.process
     const nd = ND[nodeType] || ND.process
@@ -223,7 +238,8 @@ async function renderFlowchart(data) {
 
     svg += makeShape(nodeType, nd.w, nd.h, cx, cy, c)
 
-    const label = origNode.text || origNode.label || ''
+    // 从原始节点取文本
+    const label = origNode.text || origNode.label || ln.labels?.[0]?.text || ''
     const ty = nodeType === 'decision' ? cy + 2 : cy + 3
     svg += `<text x="${cx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${c.text}" font-weight="${nodeType === 'decision' ? 600 : 400}">${label}</text>`
   })
