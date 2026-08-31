@@ -78,24 +78,26 @@ function computeLayout(nodes, edges) {
     }
   })
 
-  // BFS 分配层级（最长路径）
-  const rootIds = Object.values(nodeMap).filter(n => n.parents.length === 0).map(n => n.id)
-  const queue = [...rootIds]
-  const visited = new Set()
-  while (queue.length > 0) {
-    const id = queue.shift()
-    if (visited.has(id)) continue
-    visited.add(id)
-    const node = nodeMap[id]
-    node.children.forEach(cid => {
-      if (nodeMap[cid]) {
-        nodeMap[cid].rank = Math.max(nodeMap[cid].rank, node.rank + 1)
-        queue.push(cid)
-      }
-    })
+  // 找真正的"开始"节点
+  let startId = Object.values(nodeMap).find(n => n.type === 'start')?.id
+  if (!startId) {
+    // 没有 start 类型，选第一个无父节点的
+    const roots = Object.values(nodeMap).filter(n => n.parents.length === 0)
+    startId = roots.length > 0 ? roots[0].id : nodes[0]?.id
   }
 
-  // 识别回边（从高rank到低rank的边）
+  // 从 start 节点 DFS 最长路径分配层级
+  function assignRanks(id, rank, visited) {
+    if (visited.has(id)) return
+    visited.add(id)
+    const node = nodeMap[id]
+    if (!node) return
+    node.rank = Math.max(node.rank, rank)
+    node.children.forEach(cid => assignRanks(cid, rank + 1, visited))
+  }
+  assignRanks(startId, 0, new Set())
+
+  // 识别回边
   const backEdges = new Set()
   edgeList.forEach(e => {
     if (nodeMap[e.to].rank <= nodeMap[e.from].rank) {
@@ -125,11 +127,11 @@ function computeLayout(nodes, edges) {
 
   const maxRank = Math.max(...Object.keys(rankMap).map(Number))
 
-  // 间距参数（加大）
-  const NODE_GAP = 200
-  const RANK_GAP = 140
-  const MARGIN_X = 140
-  const MARGIN_Y = 80
+  // 间距参数 - 参考 Visio 风格
+  const NODE_GAP = 160
+  const RANK_GAP = 120
+  const MARGIN_X = 100
+  const MARGIN_Y = 60
 
   // 计算每层总宽度
   const rankWidths = {}
@@ -138,16 +140,15 @@ function computeLayout(nodes, edges) {
     let total = 0
     ids.forEach((id, i) => {
       const w = ND[nodeMap[id].type]?.w || ND.process.w
-      total += w
-      if (i > 0) total += NODE_GAP
+      total += w + (i > 0 ? NODE_GAP : 0)
     })
     rankWidths[r] = total
   })
 
-  // 画布宽度：取最大层宽 + 边距，回边需要额外右侧空间
+  // 画布宽度
   const maxLayerW = Math.max(...Object.values(rankWidths), 400)
-  const backEdgeSpace = backEdges.size > 0 ? 200 : 0
-  const canvasW = maxLayerW + MARGIN_X * 2 + backEdgeSpace
+  const backEdgeSpace = backEdges.size > 0 ? 120 : 0
+  const canvasW = Math.max(maxLayerW + MARGIN_X * 2 + backEdgeSpace, 600)
 
   // 分配位置
   Object.keys(rankMap).forEach(r => {
@@ -213,21 +214,24 @@ function renderFlowchart(data) {
     let d, lx, ly
 
     if (fn.type === 'decision' && edge.label) {
-      // 决策分支：从菱形左/右角出发
+      // 决策分支：标准 L 形（先下后平再下），标签在水平段上方
       const side = edge.label === '否' ? 1 : -1
-      const hw = fd.w / 2, hh = fd.h / 2
-      const startX = fn.x + side * hw * 0.55
-      const startY = fn.y + side * hh * 0.55
-      const midY = sy + (ey - sy) * 0.5
-      d = `M${sx},${sy} L${startX},${startY} L${startX},${midY} L${ex},${midY} L${ex},${ey}`
-      lx = (startX + ex) / 2 + side * 20
-      ly = midY
+      const hw = fd.w / 2
+      const downLen = 25  // 从菱形底部向下的距离
+      const startY = fn.y + fd.h / 2 + downLen
+      const midY = Math.min(startY + 20, ey - 20)
+      // 水平偏移量：根据目标位置决定
+      const hOffset = side * Math.abs(ex - fn.x) * 0.5
+      const midX = fn.x + hOffset
+      d = `M${sx},${sy} L${sx},${startY} L${midX},${startY} L${midX},${ey} L${ex},${ey}`
+      lx = midX + (side > 0 ? 14 : -14)
+      ly = startY
 
     } else if (isBackEdge) {
-      // 回边：从源节点底部→右→下→左→目标节点顶部
-      const rightX = canvasW - 60
-      d = `M${sx},${sy} L${rightX},${sy} L${rightX},${ey} L${ex},${ey}`
-      lx = rightX + 16
+      // 回边：走左侧绕回（参考 Visio 风格）
+      const leftX = 40
+      d = `M${sx},${sy} L${leftX},${sy} L${leftX},${ey} L${ex},${ey}`
+      lx = leftX - 16
       ly = (sy + ey) / 2
 
     } else if (Math.abs(sx - ex) < 2) {
