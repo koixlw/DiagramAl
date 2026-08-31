@@ -171,7 +171,7 @@ function computeLayout(nodes, edges) {
 
   const canvasH = (maxRank + 1) * RANK_GAP + MARGIN_Y * 2
 
-  return { nodeMap, canvasW, canvasH, backEdges, edgeList }
+  return { nodeMap, canvasW, canvasH, backEdges, edgeList, rankMap }
 }
 
 function renderFlowchart(data) {
@@ -183,7 +183,7 @@ function renderFlowchart(data) {
     return
   }
 
-  const { nodeMap, canvasW, canvasH, backEdges, edgeList } = computeLayout(nodes, edges)
+  const { nodeMap, canvasW, canvasH, backEdges, edgeList, rankMap } = computeLayout(nodes, edges)
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}" viewBox="0 0 ${canvasW} ${canvasH}" style="font-family:Inter,sans-serif">`
   svg += '<defs>'
@@ -214,22 +214,32 @@ function renderFlowchart(data) {
     let d, lx, ly
 
     if (fn.type === 'decision' && edge.label) {
-      // 决策分支：标准 L 形（先下后平再下），标签在水平段上方
+      // 决策分支：紧凑 L 形
       const side = edge.label === '否' ? 1 : -1
-      const hw = fd.w / 2
-      const downLen = 25  // 从菱形底部向下的距离
+      const downLen = 20
       const startY = fn.y + fd.h / 2 + downLen
-      const midY = Math.min(startY + 20, ey - 20)
-      // 水平偏移量：根据目标位置决定
-      const hOffset = side * Math.abs(ex - fn.x) * 0.5
-      const midX = fn.x + hOffset
+      // 水平走向目标的方向
+      const midX = fn.x + side * Math.max(Math.abs(ex - fn.x) * 0.4, 40)
+      const midY = Math.min(startY + 15, ey - 15)
       d = `M${sx},${sy} L${sx},${startY} L${midX},${startY} L${midX},${ey} L${ex},${ey}`
-      lx = midX + (side > 0 ? 14 : -14)
+      lx = midX + (side > 0 ? 12 : -12)
       ly = startY
 
     } else if (isBackEdge) {
-      // 回边：走左侧绕回（参考 Visio 风格）
-      const leftX = 40
+      // 回边：计算需要的最左位置（中间层最左节点的左边）
+      const fromRank = fn.rank
+      const toRank = tn.rank
+      let minX = Infinity
+      for (let r = toRank; r <= fromRank; r++) {
+        if (rankMap[r]) {
+          rankMap[r].forEach(id => {
+            const nd = ND[nodeMap[id].type] || ND.process
+            const nodeLeft = nodeMap[id].x - nd.w / 2
+            minX = Math.min(minX, nodeLeft)
+          })
+        }
+      }
+      const leftX = Math.min(minX, 40) - 30  // 在最左节点左边 30px
       d = `M${sx},${sy} L${leftX},${sy} L${leftX},${ey} L${ex},${ey}`
       lx = leftX - 16
       ly = (sy + ey) / 2
