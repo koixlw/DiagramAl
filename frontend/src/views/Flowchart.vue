@@ -1,7 +1,9 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import ELK from 'elkjs/lib/elk.bundled.js'
 
+const elk = new ELK()
 const router = useRouter()
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
@@ -48,133 +50,74 @@ async function generate() {
       const err = await res.json().catch(() => ({}))
       throw new Error(err.detail || `请求失败 (${res.status})`)
     }
-    renderFlowchart((await res.json()).data)
-    hasDiagram.value = true
-  } catch (e) { error.value = e.message }
-  finally { loading.value = false }
+    await renderFlowchart((await res.json()).data)
+  } catch (e) {
+    error.value = e.message
+    loading.value = false
+  }
 }
 
 /**
- * 改进的分层布局算法
- * 1. BFS 拓扑排序，区分前向边和回边
- * 2. 决策节点按分支方向分配到不同列
- * 3. 回边绕右侧绘制
- * 4. 同层节点水平均匀分布，间距充足
+ * 使用 ELK.js 进行专业流程图布局
  */
-function computeLayout(nodes, edges) {
-  const nodeMap = {}
-  nodes.forEach(n => {
-    nodeMap[n.id] = { ...n, rank: 0, x: 0, y: 0, children: [], parents: [], incomingEdges: [] }
-  })
-
-  // 构建图，记录边信息
-  const edgeList = []
-  edges.forEach(e => {
-    if (nodeMap[e.from] && nodeMap[e.to]) {
-      nodeMap[e.from].children.push(e.to)
-      nodeMap[e.to].parents.push(e.from)
-      nodeMap[e.to].incomingEdges.push(e.from)
-      edgeList.push(e)
+async function computeLayout(nodes, edges) {
+  const elkNodes = nodes.map(n => ({
+    id: n.id,
+    width: (ND[n.type] || ND.process).w,
+    height: (ND[n.type] || ND.process).h,
+    labels: [{ text: n.label, width: (ND[n.type] || ND.process).w - 16 }],
+    layoutOptions: {
+      'elk.nodeLabels.placement': 'INSIDE V_CENTER H_CENTER'
     }
-  })
+  }))
 
-  // 找真正的"开始"节点
-  let startId = Object.values(nodeMap).find(n => n.type === 'start')?.id
-  if (!startId) {
-    // 没有 start 类型，选第一个无父节点的
-    const roots = Object.values(nodeMap).filter(n => n.parents.length === 0)
-    startId = roots.length > 0 ? roots[0].id : nodes[0]?.id
+  const elkEdges = edges.map((e, i) => ({
+    id: `edge-${i}`,
+    sources: [e.from],
+    targets: [e.to],
+    labels: e.label ? [{ text: e.label }] : [],
+    layoutOptions: {
+      'elk.edgeLabels.placement': 'OUTSIDE'
+    }
+  }))
+
+  const graph = {
+    id: 'root',
+    layoutOptions: {
+      'elk.algorithm': 'layered',
+      'elk.direction': 'DOWN',
+      'elk.layered.spacing.nodeNodeBetweenLayers': 120,
+      'elk.layered.spacing.nodeNode': 160,
+      'elk.spacing.nodeNode': 160,
+      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      'elk.layered.cycleBreaking.strategy': 'GREEDY',
+      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
+      'elk.edgeRouting': 'ORTHOGONAL',
+      'elk.layered.mergeEdges': 'true',
+      'elk.layered.feedbackEdges': 'true',
+      'elk.layered.thoroughness': '10',
+    },
+    children: elkNodes,
+    edges: elkEdges,
   }
 
-  // 从 start 节点 DFS 最长路径分配层级
-  function assignRanks(id, rank, visited) {
-    if (visited.has(id)) return
-    visited.add(id)
-    const node = nodeMap[id]
-    if (!node) return
-    node.rank = Math.max(node.rank, rank)
-    node.children.forEach(cid => assignRanks(cid, rank + 1, visited))
+  const layoutedGraph = await elk.layout(graph)
+
+  // 计算画布尺寸
+  let maxX = 0, maxY = 0
+  layoutedGraph.children?.forEach(n => {
+    maxX = Math.max(maxX, n.x + n.width)
+    maxY = Math.max(maxY, n.y + n.height)
+  })
+
+  return {
+    layoutedGraph,
+    canvasW: maxX + 120,
+    canvasH: maxY + 120,
   }
-  assignRanks(startId, 0, new Set())
-
-  // 识别回边
-  const backEdges = new Set()
-  edgeList.forEach(e => {
-    if (nodeMap[e.to].rank <= nodeMap[e.from].rank) {
-      backEdges.add(`${e.from}->${e.to}`)
-    }
-  })
-
-  // 决策节点优化：让"否"分支的节点向右偏移
-  edgeList.forEach(e => {
-    const from = nodeMap[e.from]
-    const to = nodeMap[e.to]
-    if (from && to && from.type === 'decision' && e.label === '否') {
-      // "否"分支的目标节点 rank 保持不变，但后面布局时会向右偏移
-      to._branchOffset = 1
-    } else if (from && to && from.type === 'decision' && e.label === '是') {
-      to._branchOffset = -1
-    }
-  })
-
-  // 收集每层的节点
-  const rankMap = {}
-  Object.values(nodeMap).forEach(n => {
-    const r = n.rank
-    if (!rankMap[r]) rankMap[r] = []
-    rankMap[r].push(n.id)
-  })
-
-  const maxRank = Math.max(...Object.keys(rankMap).map(Number))
-
-  // 间距参数 - 参考 Visio 风格
-  const NODE_GAP = 160
-  const RANK_GAP = 120
-  const MARGIN_X = 100
-  const MARGIN_Y = 60
-
-  // 计算每层总宽度
-  const rankWidths = {}
-  Object.keys(rankMap).forEach(r => {
-    const ids = rankMap[r]
-    let total = 0
-    ids.forEach((id, i) => {
-      const w = ND[nodeMap[id].type]?.w || ND.process.w
-      total += w + (i > 0 ? NODE_GAP : 0)
-    })
-    rankWidths[r] = total
-  })
-
-  // 画布宽度
-  const maxLayerW = Math.max(...Object.values(rankWidths), 400)
-  const backEdgeSpace = backEdges.size > 0 ? 120 : 0
-  const canvasW = Math.max(maxLayerW + MARGIN_X * 2 + backEdgeSpace, 600)
-
-  // 分配位置
-  Object.keys(rankMap).forEach(r => {
-    const ids = rankMap[r]
-    const totalW = ids.reduce((s, id, i) => {
-      const w = ND[nodeMap[id].type]?.w || ND.process.w
-      return s + w + (i > 0 ? NODE_GAP : 0)
-    }, 0)
-    const startX = (canvasW - totalW) / 2
-    let cx = startX
-    ids.forEach(id => {
-      const w = ND[nodeMap[id].type]?.w || ND.process.w
-      // 决策分支偏移
-      const offset = (nodeMap[id]._branchOffset || 0) * 80
-      nodeMap[id].x = cx + w / 2 + offset
-      nodeMap[id].y = parseInt(r) * RANK_GAP + MARGIN_Y
-      cx += w + NODE_GAP
-    })
-  })
-
-  const canvasH = (maxRank + 1) * RANK_GAP + MARGIN_Y * 2
-
-  return { nodeMap, canvasW, canvasH, backEdges, edgeList, rankMap }
 }
 
-function renderFlowchart(data) {
+async function renderFlowchart(data) {
   const nodes = (data?.nodes || []).filter(n => n && n.id)
   const edges = (data?.edges || []).filter(e => e && e.from && e.to)
 
@@ -183,7 +126,24 @@ function renderFlowchart(data) {
     return
   }
 
-  const { nodeMap, canvasW, canvasH, backEdges, edgeList, rankMap } = computeLayout(nodes, edges)
+  loading.value = true
+  const { layoutedGraph, canvasW, canvasH } = await computeLayout(nodes, edges)
+
+  // 建立 ELK 节点到原始数据的映射
+  const elkMap = {}
+  layoutedGraph.children?.forEach(ln => {
+    elkMap[ln.id] = ln
+  })
+
+  // ELK 边的映射
+  const elkEdgeMap = {}
+  layoutedGraph.edges?.forEach(le => {
+    const fromId = le.sources[0]
+    const toId = le.targets[0]
+    const key = `${fromId}->${toId}`
+    if (!elkEdgeMap[key]) elkEdgeMap[key] = []
+    elkEdgeMap[key].push(le)
+  })
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}" viewBox="0 0 ${canvasW} ${canvasH}" style="font-family:Inter,sans-serif">`
   svg += '<defs>'
@@ -192,95 +152,59 @@ function renderFlowchart(data) {
   svg += '</defs>'
   svg += '<g>'
 
-  // ---- 连线 ----
-  edges.forEach(edge => {
-    const fn = nodeMap[edge.from]
-    const tn = nodeMap[edge.to]
-    if (!fn || !tn) return
-
-    const fd = ND[fn.type] || ND.process
-    const td = ND[tn.type] || ND.process
-    const active = !!edge.label
-    const isBackEdge = backEdges.has(`${edge.from}->${edge.to}`)
+  // ---- ELK 生成的连线 ----
+  layoutedGraph.edges?.forEach(le => {
+    const fromId = le.sources[0]
+    const toId = le.targets[0]
+    // 找原始边的 label
+    const origEdge = edges.find(e => e.from === fromId && e.to === toId)
+    const active = !!origEdge?.label
     const sc = active ? '#2563eb' : '#64748b'
     const sw = active ? 2 : 1.5
     const mk = active ? 'url(#aha)' : 'url(#ah)'
 
-    const sx = fn.x
-    const sy = fn.y + fd.h / 2
-    const ex = tn.x
-    const ey = tn.y - td.h / 2
+    // 构建 ELK 的正交路径
+    const points = []
+    if (le.sourcePoint) points.push(`${le.sourcePoint.x},${le.sourcePoint.y}`)
+    if (le.junctionPoints) {
+      le.junctionPoints.forEach(jp => points.push(`${jp.x},${jp.y}`))
+    }
+    if (le.targetPoint) points.push(`${le.targetPoint.x},${le.targetPoint.y}`)
 
-    let d, lx, ly
+    const d = points.length > 1 ? `M${points.join(' L')}` : ''
 
-    if (fn.type === 'decision' && edge.label) {
-      // 决策分支：紧凑 L 形
-      const side = edge.label === '否' ? 1 : -1
-      const downLen = 20
-      const startY = fn.y + fd.h / 2 + downLen
-      // 水平走向目标的方向
-      const midX = fn.x + side * Math.max(Math.abs(ex - fn.x) * 0.4, 40)
-      const midY = Math.min(startY + 15, ey - 15)
-      d = `M${sx},${sy} L${sx},${startY} L${midX},${startY} L${midX},${ey} L${ex},${ey}`
-      lx = midX + (side > 0 ? 12 : -12)
-      ly = startY
-
-    } else if (isBackEdge) {
-      // 回边：计算需要的最左位置（中间层最左节点的左边）
-      const fromRank = fn.rank
-      const toRank = tn.rank
-      let minX = Infinity
-      for (let r = toRank; r <= fromRank; r++) {
-        if (rankMap[r]) {
-          rankMap[r].forEach(id => {
-            const nd = ND[nodeMap[id].type] || ND.process
-            const nodeLeft = nodeMap[id].x - nd.w / 2
-            minX = Math.min(minX, nodeLeft)
-          })
-        }
-      }
-      const leftX = Math.min(minX, 40) - 30  // 在最左节点左边 30px
-      d = `M${sx},${sy} L${leftX},${sy} L${leftX},${ey} L${ex},${ey}`
-      lx = leftX - 16
-      ly = (sy + ey) / 2
-
-    } else if (Math.abs(sx - ex) < 2) {
-      // 垂直直连
-      d = `M${sx},${sy} L${ex},${ey}`
-      lx = sx + 18
-      ly = (sy + ey) / 2
-
-    } else {
-      // 普通折线
-      const midY = sy + (ey - sy) * 0.5
-      d = `M${sx},${sy} L${sx},${midY} L${ex},${midY} L${ex},${ey}`
-      lx = Math.max(sx, ex) + 18
-      ly = midY
+    if (d) {
+      svg += `<path d="${d}" fill="none" stroke="${sc}" stroke-width="${sw}" marker-end="${mk}" stroke-linecap="round" stroke-linejoin="round"/>`
     }
 
-    svg += `<path d="${d}" fill="none" stroke="${sc}" stroke-width="${sw}" marker-end="${mk}" stroke-linecap="round" stroke-linejoin="round"/>`
-
-    if (edge.label) {
-      const fc = active ? '#2563eb' : '#475569'
-      const fb = active ? '#eff6ff' : '#f8fafc'
-      const sb = active ? '#93c5fd' : '#cbd5e1'
-      const tw = edge.label.length * 12 + 18
-      svg += `<rect x="${lx - tw/2}" y="${ly - 10}" width="${tw}" height="20" rx="4" fill="${fb}" stroke="${sb}" stroke-width="1"/>`
-      svg += `<text x="${lx}" y="${ly + 4}" text-anchor="middle" font-size="11" fill="${fc}" font-weight="500">${edge.label}</text>`
+    // 标签
+    if (le.labels && le.labels.length > 0) {
+      le.labels.forEach(lbl => {
+        const fc = active ? '#2563eb' : '#475569'
+        const fb = active ? '#eff6ff' : '#f8fafc'
+        const sb = active ? '#93c5fd' : '#cbd5e1'
+        const tw = (lbl.text?.length || 1) * 12 + 18
+        const lx = lbl.x || 0
+        const ly = lbl.y || 0
+        svg += `<rect x="${lx - tw/2}" y="${ly - 10}" width="${tw}" height="20" rx="4" fill="${fb}" stroke="${sb}" stroke-width="1"/>`
+        svg += `<text x="${lx}" y="${ly + 4}" text-anchor="middle" font-size="11" fill="${fc}" font-weight="500">${lbl.text || ''}</text>`
+      })
     }
   })
 
   // ---- 节点 ----
-  nodes.forEach(node => {
-    const n = nodeMap[node.id]
-    if (!n) return
-    const c = CL[node.type] || CL.process
-    const nd = ND[node.type] || ND.process
+  layoutedGraph.children?.forEach(ln => {
+    const origNode = nodes.find(n => n.id === ln.id)
+    if (!origNode || !ln.x || !ln.y) return
+    const c = CL[origNode.type] || CL.process
+    const nd = ND[origNode.type] || ND.process
+    const cx = ln.x + ln.width / 2
+    const cy = ln.y + ln.height / 2
 
-    svg += makeShape(node.type, nd.w, nd.h, n.x, n.y, c)
+    svg += makeShape(origNode.type, nd.w, nd.h, cx, cy, c)
 
-    const ty = node.type === 'decision' ? n.y + 2 : n.y + 3
-    svg += `<text x="${n.x}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${c.text}" font-weight="${node.type === 'decision' ? 600 : 400}">${node.label}</text>`
+    const ty = origNode.type === 'decision' ? cy + 2 : cy + 3
+    svg += `<text x="${cx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${c.text}" font-weight="${origNode.type === 'decision' ? 600 : 400}">${origNode.label}</text>`
   })
 
   svg += '</g></svg>'
@@ -288,6 +212,8 @@ function renderFlowchart(data) {
 
   const el = document.getElementById('flowchart-canvas')
   if (el) el.innerHTML = svg
+  loading.value = false
+  hasDiagram.value = true
 }
 
 function makeShape(type, w, h, cx, cy, c) {
