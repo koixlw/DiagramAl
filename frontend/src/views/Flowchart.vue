@@ -39,7 +39,6 @@ const CL = {
   connector:    { fill: '#f3f4f6', stroke: '#6b7280', text: '#1f2937' },
 }
 
-// 类型映射（兼容 AI 返回的类型）
 function mapNodeType(t) {
   if (t === 'start_end') return 'start_end'
   if (t === 'start') return 'start'
@@ -74,47 +73,93 @@ async function generate() {
 }
 
 /**
- * 使用 ELK.js 进行专业流程图布局
+ * 使用 ELK.js 端口系统自动布局
  */
 async function computeLayout(nodes, edges) {
   const elkNodes = nodes.map(n => {
     const t = mapNodeType(n.type)
+    const d = ND[t] || ND.process
+    const hw = d.w / 2, hh = d.h / 2
+
+    // 为每个节点定义四个方向的端口
+    const ports = [
+      { id: `${n.id}.north`, layoutOptions: { 'side': 'NORTH', 'portIndex': '0' } },
+      { id: `${n.id}.south`, layoutOptions: { 'side': 'SOUTH', 'portIndex': '0' } },
+      { id: `${n.id}.west`,  layoutOptions: { 'side': 'WEST',  'portIndex': '0' } },
+      { id: `${n.id}.east`,  layoutOptions: { 'side': 'EAST',  'portIndex': '0' } },
+    ]
+
+    // 菱形额外添加角端口
+    if (t === 'decision') {
+      ports.push(
+        { id: `${n.id}.top`,     layoutOptions: { 'side': 'NORTH', 'portIndex': '1' } },
+        { id: `${n.id}.bottom`,  layoutOptions: { 'side': 'SOUTH', 'portIndex': '1' } },
+        { id: `${n.id}.left`,    layoutOptions: { 'side': 'WEST',  'portIndex': '1' } },
+        { id: `${n.id}.right`,   layoutOptions: { 'side': 'EAST',  'portIndex': '1' } },
+      )
+    }
+
     return {
       id: n.id,
-      width: (ND[t] || ND.process).w,
-      height: (ND[t] || ND.process).h,
-      labels: [{ text: n.text || n.label || '', width: (ND[t] || ND.process).w - 16 }],
+      width: d.w,
+      height: d.h,
+      labels: [{ text: n.text || n.label || '', width: d.w - 16 }],
+      ports,
       layoutOptions: {
-        'elk.nodeLabels.placement': 'INSIDE V_CENTER H_CENTER'
+        'elk.nodeLabels.placement': 'INSIDE V_CENTER H_CENTER',
+        'elk.portConstraints': 'FIXED_SIDE',
+        'elk.portAlignment': 'CENTER',
       }
     }
   })
 
-  const elkEdges = edges.map((e, i) => ({
-    id: `edge-${i}`,
-    sources: [e.from],
-    targets: [e.to],
-    labels: e.label ? [{ text: e.label }] : [],
-    layoutOptions: {
-      'elk.edgeLabels.placement': 'OUTSIDE'
+  const elkEdges = edges.map((e, i) => {
+    const fromOrig = nodes.find(n => n.id === e.from)
+    const toOrig = nodes.find(n => n.id === e.to)
+    const fromType = fromOrig ? mapNodeType(fromOrig.type) : 'process'
+    const isDecision = fromType === 'decision' && e.label
+
+    // 决策节点：从角端口出发
+    let srcPort
+    if (isDecision) {
+      srcPort = e.label === '是' ? `${e.from}.bottom` : `${e.from}.${e.label === '否' && (nodes.find(n => n.id === e.to)?.x || 0) > (nodes.find(n => n.id === e.from)?.x || 0) ? 'right' : 'left'}`
+    } else {
+      srcPort = `${e.from}.south`
     }
-  }))
+
+    // 目标端口
+    const toType = toOrig ? mapNodeType(toOrig.type) : 'process'
+    let tgtPort = toType === 'decision' ? `${e.to}.top` : `${e.to}.north`
+
+    return {
+      id: `edge-${i}`,
+      sources: [e.from],
+      targets: [e.to],
+      sourcePortRef: srcPort,
+      targetPortRef: tgtPort,
+      labels: e.label ? [{ text: e.label }] : [],
+      layoutOptions: {
+        'elk.edgeLabels.placement': 'OUTSIDE',
+        'elk.edgeRouting': 'POLYLINE',
+      }
+    }
+  })
 
   const graph = {
     id: 'root',
     layoutOptions: {
       'elk.algorithm': 'layered',
       'elk.direction': 'DOWN',
-      'elk.layered.spacing.nodeNodeBetweenLayers': 120,
-      'elk.layered.spacing.nodeNode': 160,
-      'elk.spacing.nodeNode': 160,
+      'elk.layered.spacing.nodeNodeBetweenLayers': 100,
+      'elk.layered.spacing.nodeNode': 140,
+      'elk.spacing.nodeNode': 140,
       'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
       'elk.layered.cycleBreaking.strategy': 'GREEDY',
       'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
       'elk.edgeRouting': 'POLYLINE',
       'elk.layered.mergeEdges': 'true',
       'elk.layered.feedbackEdges': 'true',
-      'elk.layered.thoroughness': '10',
+      'elk.portConstraints': 'FIXED_SIDE',
     },
     children: elkNodes,
     edges: elkEdges,
@@ -122,7 +167,6 @@ async function computeLayout(nodes, edges) {
 
   const layoutedGraph = await elk.layout(graph)
 
-  // 计算画布尺寸
   let maxX = 0, maxY = 0
   layoutedGraph.children?.forEach(n => {
     maxX = Math.max(maxX, n.x + n.width)
@@ -145,14 +189,7 @@ async function renderFlowchart(data) {
     return
   }
 
-  loading.value = true
   const { layoutedGraph, canvasW, canvasH } = await computeLayout(nodes, edges)
-
-  // 建立 ELK 节点到原始数据的映射
-  const elkMap = {}
-  layoutedGraph.children?.forEach(ln => {
-    elkMap[ln.id] = ln
-  })
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}" viewBox="0 0 ${canvasW} ${canvasH}" style="font-family:Inter,sans-serif">`
   svg += '<defs>'
@@ -161,7 +198,7 @@ async function renderFlowchart(data) {
   svg += '</defs>'
   svg += '<g>'
 
-  // ---- ELK 生成的连线 ----
+  // ---- ELK 自动路由连线 ----
   layoutedGraph.edges?.forEach(le => {
     const fromId = le.sources[0]
     const toId = le.targets[0]
@@ -172,38 +209,12 @@ async function renderFlowchart(data) {
     const mk = active ? 'url(#aha)' : 'url(#ah)'
 
     const points = []
-
-    // 尝试 ELK 新版 sections 格式
     if (le.sections && le.sections.length > 0) {
       le.sections.forEach(sec => {
         if (sec.startPoint) points.push(`${sec.startPoint.x},${sec.startPoint.y}`)
         if (sec.bendPoints) sec.bendPoints.forEach(bp => points.push(`${bp.x},${bp.y}`))
         if (sec.endPoint) points.push(`${sec.endPoint.x},${sec.endPoint.y}`)
       })
-    }
-    // 尝试 ELK 旧版格式
-    else if (le.sourcePoint) {
-      points.push(`${le.sourcePoint.x},${le.sourcePoint.y}`)
-      if (le.junctionPoints) le.junctionPoints.forEach(jp => points.push(`${jp.x},${jp.y}`))
-      if (le.targetPoint) points.push(`${le.targetPoint.x},${le.targetPoint.y}`)
-    }
-
-    // 兜底：只有当 ELK 完全没有返回路径时才用
-    if (points.length < 2) {
-      const fromNode = layoutedGraph.children?.find(n => n.id === fromId)
-      const toNode = layoutedGraph.children?.find(n => n.id === toId)
-      if (fromNode && toNode) {
-        const sx = fromNode.x + (fromNode.width || 0) / 2
-        const sy = fromNode.y + (fromNode.height || 0)
-        const ex = toNode.x + (toNode.width || 0) / 2
-        const ey = toNode.y
-        const midY = sy + (ey - sy) / 2
-        if (Math.abs(sx - ex) < 5) {
-          points.push(`${sx},${sy}`, `${ex},${ey}`)
-        } else {
-          points.push(`${sx},${sy}`, `${sx},${midY}`, `${ex},${midY}`, `${ex},${ey}`)
-        }
-      }
     }
 
     if (points.length >= 2) {
@@ -238,7 +249,6 @@ async function renderFlowchart(data) {
 
     svg += makeShape(nodeType, nd.w, nd.h, cx, cy, c)
 
-    // 从原始节点取文本
     const label = origNode.text || origNode.label || ln.labels?.[0]?.text || ''
     const ty = nodeType === 'decision' ? cy + 2 : cy + 3
     svg += `<text x="${cx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${c.text}" font-weight="${nodeType === 'decision' ? 600 : 400}">${label}</text>`
