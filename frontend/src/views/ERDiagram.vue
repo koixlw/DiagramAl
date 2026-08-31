@@ -51,47 +51,38 @@ function renderERDiagram(data) {
   const entities = data?.entities || []
   const relationships = data?.relationships || []
 
-  // 用 flatMap 构建所有节点
-  const entityParts = entities.flatMap(e => {
-    const attrs = (e.attributes || []).map((a, i) => ({
-      id: `attr-${e.id}-${i}`,
-      type: 'attribute',
-      name: a.name,
-      isPK: a.is_primary_key || a.primary_key || false
-    }))
-    return [{ id: `e-${e.id}`, refId: e.id, type: 'entity', name: e.name }, ...attrs]
+  const nodes = []
+  const links = []
+
+  // 实体节点
+  entities.forEach(e => {
+    nodes.push({
+      id: `e-${e.id}`,
+      refId: e.id,
+      type: 'entity',
+      name: e.name,
+      attributes: e.attributes || [],
+    })
   })
 
-  const relParts = relationships.flatMap(r => {
-    const relId = `r-${r.id}`
-    const attrs = (r.attributes || []).map((a, i) => ({
-      id: `attr-rel-${r.id}-${i}`,
-      type: 'attribute',
-      name: a.name,
-      isPK: a.is_primary_key || a.primary_key || false
-    }))
-    return [{ id: relId, refId: r.id, type: 'relationship', name: r.name, fromEntity: `e-${r.from_entity || r.from}`, toEntity: `e-${r.to_entity || r.to}`, fromCard: r.from_cardinality || r.cardinality?.from || 'N', toCard: r.to_cardinality || r.cardinality?.to || 'M' }, ...attrs]
+  // 关系节点
+  relationships.forEach(r => {
+    nodes.push({
+      id: `r-${r.id}`,
+      refId: r.id,
+      type: 'relationship',
+      name: r.name,
+      attributes: r.attributes || [],
+      fromEntity: r.from_entity || r.from,
+      toEntity: r.to_entity || r.to,
+      fromCard: r.from_cardinality || r.cardinality?.from || 'N',
+      toCard: r.to_cardinality || r.cardinality?.to || 'M',
+    })
+    links.push({ source: `e-${r.from_entity || r.from}`, target: `r-${r.id}` })
+    links.push({ source: `e-${r.to_entity || r.to}`, target: `r-${r.id}` })
   })
 
-  const allNodes = entityParts.concat(relParts)
-
-  // 用 flatMap 构建所有连线
-  const attrLinks = entities.flatMap(e =>
-    (e.attributes || []).map((a, i) => ({ source: `e-${e.id}`, target: `attr-${e.id}-${i}` }))
-  )
-  const relLinks = relationships.flatMap(r => {
-    const relId = `r-${r.id}`
-    const base = [
-      { source: `e-${r.from_entity || r.from}`, target: relId },
-      { source: `e-${r.to_entity || r.to}`, target: relId }
-    ]
-    const attrL = (r.attributes || []).map((a, i) => ({ source: relId, target: `attr-rel-${r.id}-${i}` }))
-    return base.concat(attrL)
-  })
-  const allLinks = attrLinks.concat(relLinks)
-
-  const svgW = 5000, svgH = 5000
-  const offsetX = 2500, offsetY = 2500
+  const svgW = 800, svgH = 600
   const container = document.getElementById('er-canvas')
   if (!container) return
   container.innerHTML = ''
@@ -117,10 +108,10 @@ function renderERDiagram(data) {
     .append('path').attr('d', 'M0 0L10 3.5L0 7Z').attr('fill', '#94a3b8')
 
   // 力导向布局
-  const sim = d3.forceSimulation(allNodes)
-    .force('link', d3.forceLink(allLinks).id(d => d.id).distance(200))
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(200))
     .force('charge', d3.forceManyBody().strength(-600))
-    .force('center', d3.forceCenter(0, 0))
+    .force('center', d3.forceCenter(svgW / 2, svgH / 2))
     .force('collision', d3.forceCollide().radius(80))
   sim.stop()
   for (let i = 0; i < 300; i++) sim.tick()
@@ -128,34 +119,34 @@ function renderERDiagram(data) {
   const g = svg.append('g')
 
   // 连线
-  allLinks.forEach(link => {
-    const src = allNodes.find(n => n.id === (link.source.id || link.source))
-    const tgt = allNodes.find(n => n.id === (link.target.id || link.target))
+  links.forEach(link => {
+    const src = nodes.find(n => n.id === (link.source.id || link.source))
+    const tgt = nodes.find(n => n.id === (link.target.id || link.target))
     if (!src || !tgt) return
     g.append('line')
-      .attr('x1', src.x + offsetX).attr('y1', src.y + offsetY)
-      .attr('x2', tgt.x + offsetX).attr('y2', tgt.y + offsetY)
+      .attr('x1', src.x).attr('y1', src.y)
+      .attr('x2', tgt.x).attr('y2', tgt.y)
       .attr('stroke', '#94a3b8').attr('stroke-width', 1.5)
       .attr('marker-end', 'url(#er-arrow)')
   })
 
   // 基数标注
   relationships.forEach(r => {
-    const fn = allNodes.find(n => n.refId === (r.from_entity || r.from) && n.type === 'entity')
-    const tn = allNodes.find(n => n.refId === (r.to_entity || r.to) && n.type === 'entity')
-    const rn = allNodes.find(n => n.refId === r.id && n.type === 'relationship')
+    const fn = nodes.find(n => n.refId === (r.from_entity || r.from) && n.type === 'entity')
+    const tn = nodes.find(n => n.refId === (r.to_entity || r.to) && n.type === 'entity')
+    const rn = nodes.find(n => n.refId === r.id && n.type === 'relationship')
     const fromCard = r.from_cardinality || r.cardinality?.from || 'N'
     const toCard = r.to_cardinality || r.cardinality?.to || 'M'
 
     if (fn && rn) {
-      const mx = (fn.x + rn.x) / 2 + offsetX, my = (fn.y + rn.y) / 2 + offsetY - 14
+      const mx = (fn.x + rn.x) / 2, my = (fn.y + rn.y) / 2 - 14
       g.append('text').attr('x', mx).attr('y', my)
         .attr('text-anchor', 'middle').attr('font-size', 12)
         .attr('font-family', 'JetBrains Mono,monospace').attr('fill', '#0891b2')
         .attr('font-weight', '600').text(fromCard)
     }
     if (tn && rn) {
-      const mx = (tn.x + rn.x) / 2 + offsetX, my = (tn.y + rn.y) / 2 + offsetY - 14
+      const mx = (tn.x + rn.x) / 2, my = (tn.y + rn.y) / 2 - 14
       g.append('text').attr('x', mx).attr('y', my)
         .attr('text-anchor', 'middle').attr('font-size', 12)
         .attr('font-family', 'JetBrains Mono,monospace').attr('fill', '#0891b2')
@@ -163,48 +154,45 @@ function renderERDiagram(data) {
     }
   })
 
-  // 实体矩形
-  allNodes.filter(n => n.type === 'entity').forEach(node => {
-    const ew = 120, eh = 44
-    const gNode = g.append('g').attr('transform', `translate(${node.x + offsetX}, ${node.y + offsetY})`)
+  // 实体矩形（属性画在内部）
+  nodes.filter(n => n.type === 'entity').forEach(node => {
+    const eh = Math.max(40, 30 + node.attributes.length * 20)
+    const ew = 140
+    const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
 
     gNode.append('rect')
       .attr('x', -ew/2).attr('y', -eh/2).attr('width', ew).attr('height', eh).attr('rx', 4)
       .attr('fill', '#dbeafe').attr('stroke', '#2563eb').attr('stroke-width', 2)
 
+    gNode.append('line')
+      .attr('x1', -ew/2).attr('y1', -eh/2 + 28).attr('x2', ew/2).attr('y2', -eh/2 + 28)
+      .attr('stroke', '#bfdbfe').attr('stroke-width', 1)
+
     gNode.append('text')
-      .attr('x', 0).attr('y', 4)
-      .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
-      .attr('font-size', 13).attr('font-weight', '600')
+      .attr('x', 0).attr('y', -eh/2 + 18)
+      .attr('text-anchor', 'middle').attr('font-size', 13).attr('font-weight', '600')
       .attr('font-family', 'Inter,sans-serif').attr('fill', '#1e40af')
       .text(node.name)
-  })
 
-  // 属性椭圆
-  allNodes.filter(n => n.type === 'attribute').forEach(node => {
-    const aw = Math.max(50, node.name.length * 14 + 20), ah = 28
-    const gNode = g.append('g').attr('transform', `translate(${node.x + offsetX}, ${node.y + offsetY})`)
-
-    gNode.append('ellipse')
-      .attr('cx', 0).attr('cy', 0).attr('rx', aw/2).attr('ry', ah/2)
-      .attr('fill', '#f0fdf4').attr('stroke', node.isPK ? '#16a34a' : '#4ade80').attr('stroke-width', node.isPK ? 2.5 : 1.5)
-
-    const txt = gNode.append('text')
-      .attr('x', 0).attr('y', 3)
-      .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
-      .attr('font-size', 11).attr('font-family', 'JetBrains Mono,monospace')
-      .attr('fill', node.isPK ? '#166534' : '#4b5563')
-    if (node.isPK) {
-      txt.append('tspan').attr('text-decoration', 'underline').text(node.name)
-    } else {
-      txt.text(node.name)
-    }
+    node.attributes.forEach((a, i) => {
+      const ay = -eh/2 + 44 + i * 20
+      const txt = gNode.append('text')
+        .attr('x', 0).attr('y', ay)
+        .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+        .attr('font-size', 11).attr('font-family', 'JetBrains Mono,monospace')
+        .attr('fill', '#64748b')
+      if (a.primary_key || a.is_primary_key) {
+        txt.append('tspan').attr('text-decoration', 'underline').text(a.name)
+      } else {
+        txt.text(a.name)
+      }
+    })
   })
 
   // 关系菱形
-  allNodes.filter(n => n.type === 'relationship').forEach(node => {
+  nodes.filter(n => n.type === 'relationship').forEach(node => {
     const rw = 100, rh = 56
-    const gNode = g.append('g').attr('transform', `translate(${node.x + offsetX}, ${node.y + offsetY})`)
+    const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
 
     gNode.append('polygon')
       .attr('points', `0,${-rh/2} ${rw/2},0 0,${rh/2} ${-rw/2},0`)
@@ -311,7 +299,6 @@ function downloadSVG() {
           <span class="material-symbols-outlined text-sm align-middle mr-1">error</span> {{ error }}
           <button @click="error = ''" class="ml-2 text-red-500 hover:text-red-700">&times;</button>
         </div>
-
         <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-surface-container-lowest border border-outline-variant rounded-full px-4 py-2 flex gap-4 shadow-sm z-20">
           <button class="text-secondary hover:text-primary transition-colors" @click="zoomIn" :disabled="!hasDiagram">
             <span class="material-symbols-outlined text-sm">zoom_in</span>
@@ -324,7 +311,6 @@ function downloadSVG() {
             <span class="material-symbols-outlined text-sm">center_focus_strong</span>
           </button>
         </div>
-
         <div class="flex-1 relative w-full h-full overflow-auto p-8 flex items-center justify-center min-h-[600px] min-w-[800px]">
           <div v-if="!hasDiagram && !loading" class="flex flex-col items-center justify-center text-on-surface-variant">
             <span class="material-symbols-outlined text-6xl text-outline-variant mb-4">database</span>
@@ -340,3 +326,10 @@ function downloadSVG() {
     </div>
   </div>
 </template>
+
+<style>
+.dot-grid {
+  background-image: radial-gradient(circle, #e2e8f0 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+</style>
