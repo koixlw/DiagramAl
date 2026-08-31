@@ -7,6 +7,7 @@ const router = useRouter()
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
 const inputText = ref('')
+const inputMode = ref('text') // 'text' | 'sql'
 const loading = ref(false)
 const error = ref('')
 const hasDiagram = ref(false)
@@ -21,6 +22,10 @@ async function generate() {
   hasDiagram.value = false
 
   try {
+    const description = inputMode.value === 'sql'
+      ? `请解析以下 SQL 建表语句，生成 E-R 图：\n\n${inputText.value}`
+      : inputText.value
+
     const res = await fetch(`${API_BASE}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -30,75 +35,63 @@ async function generate() {
       const err = await res.json().catch(() => ({}))
       throw new Error(err.detail || `请求失败 (${res.status})`)
     }
-    renderERDiagram((await res.json()).data)
+    const resData = await res.json()
+    const diagramData = resData.data || resData
+    renderERDiagram(diagramData)
     hasDiagram.value = true
   } catch (e) {
     error.value = e.message
+    console.error(e)
   } finally {
     loading.value = false
   }
 }
 
 function renderERDiagram(data) {
-  const entities = data.entities || []
-  const relationships = data.relationships || []
+  const entities = data?.entities || []
+  const relationships = data?.relationships || []
 
-  const nodes = []
-  const links = []
-
-  // 实体节点
-  entities.forEach(e => {
-    nodes.push({
-      id: `e-${e.id}`,
-      refId: e.id,
-      type: 'entity',
-      name: e.name,
-    })
-    // 属性节点（椭圆）
-    (e.attributes || []).forEach((a, i) => {
-      const attrId = `attr-${e.id}-${i}`
-      nodes.push({
-        id: attrId,
-        type: 'attribute',
-        name: a.name,
-        isPrimaryKey: a.primary_key || a.is_primary_key || false,
-        parentEntity: `e-${e.id}`,
-      })
-      links.push({ source: `e-${e.id}`, target: attrId })
-    })
+  // 用 flatMap 构建所有节点
+  const entityParts = entities.flatMap(e => {
+    const attrs = (e.attributes || []).map((a, i) => ({
+      id: `attr-${e.id}-${i}`,
+      type: 'attribute',
+      name: a.name,
+      isPK: a.is_primary_key || a.primary_key || false
+    }))
+    return [{ id: `e-${e.id}`, refId: e.id, type: 'entity', name: e.name }, ...attrs]
   })
 
-  // 关系节点
-  relationships.forEach(r => {
+  const relParts = relationships.flatMap(r => {
     const relId = `r-${r.id}`
-    nodes.push({
-      id: relId,
-      refId: r.id,
-      type: 'relationship',
-      name: r.name,
-      fromEntity: `e-${r.from_entity || r.from}`,
-      toEntity: `e-${r.to_entity || r.to}`,
-      fromCard: r.from_cardinality || r.cardinality?.from || 'N',
-      toCard: r.to_cardinality || r.cardinality?.to || 'M',
-    })
-    links.push({ source: `e-${r.from_entity || r.from}`, target: relId })
-    links.push({ source: `e-${r.to_entity || r.to}`, target: relId })
-
-    // 关系属性
-    (r.attributes || []).forEach((a, i) => {
-      const attrId = `attr-rel-${r.id}-${i}`
-      nodes.push({
-        id: attrId,
-        type: 'attribute',
-        name: a.name,
-        isPrimaryKey: a.primary_key || a.is_primary_key || false,
-        parentRel: relId,
-      })
-      links.push({ source: relId, target: attrId })
-    })
+    const attrs = (r.attributes || []).map((a, i) => ({
+      id: `attr-rel-${r.id}-${i}`,
+      type: 'attribute',
+      name: a.name,
+      isPK: a.is_primary_key || a.primary_key || false
+    }))
+    return [{ id: relId, refId: r.id, type: 'relationship', name: r.name, fromEntity: `e-${r.from_entity || r.from}`, toEntity: `e-${r.to_entity || r.to}`, fromCard: r.from_cardinality || r.cardinality?.from || 'N', toCard: r.to_cardinality || r.cardinality?.to || 'M' }, ...attrs]
   })
 
-  const svgW = 800, svgH = 600
+  const allNodes = entityParts.concat(relParts)
+
+  // 用 flatMap 构建所有连线
+  const attrLinks = entities.flatMap(e =>
+    (e.attributes || []).map((a, i) => ({ source: `e-${e.id}`, target: `attr-${e.id}-${i}` }))
+  )
+  const relLinks = relationships.flatMap(r => {
+    const relId = `r-${r.id}`
+    const base = [
+      { source: `e-${r.from_entity || r.from}`, target: relId },
+      { source: `e-${r.to_entity || r.to}`, target: relId }
+    ]
+    const attrL = (r.attributes || []).map((a, i) => ({ source: relId, target: `attr-rel-${r.id}-${i}` }))
+    return base.concat(attrL)
+  })
+  const allLinks = attrLinks.concat(relLinks)
+
+  const svgW = 5000, svgH = 5000
+  const offsetX = 2500, offsetY = 2500
   const container = document.getElementById('er-canvas')
   if (!container) return
   container.innerHTML = ''
@@ -124,10 +117,10 @@ function renderERDiagram(data) {
     .append('path').attr('d', 'M0 0L10 3.5L0 7Z').attr('fill', '#94a3b8')
 
   // 力导向布局
-  const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(200))
+  const sim = d3.forceSimulation(allNodes)
+    .force('link', d3.forceLink(allLinks).id(d => d.id).distance(200))
     .force('charge', d3.forceManyBody().strength(-600))
-    .force('center', d3.forceCenter(svgW / 2, svgH / 2))
+    .force('center', d3.forceCenter(0, 0))
     .force('collision', d3.forceCollide().radius(80))
   sim.stop()
   for (let i = 0; i < 300; i++) sim.tick()
@@ -135,34 +128,34 @@ function renderERDiagram(data) {
   const g = svg.append('g')
 
   // 连线
-  links.forEach(link => {
-    const src = nodes.find(n => n.id === (link.source.id || link.source))
-    const tgt = nodes.find(n => n.id === (link.target.id || link.target))
+  allLinks.forEach(link => {
+    const src = allNodes.find(n => n.id === (link.source.id || link.source))
+    const tgt = allNodes.find(n => n.id === (link.target.id || link.target))
     if (!src || !tgt) return
     g.append('line')
-      .attr('x1', src.x).attr('y1', src.y)
-      .attr('x2', tgt.x).attr('y2', tgt.y)
+      .attr('x1', src.x + offsetX).attr('y1', src.y + offsetY)
+      .attr('x2', tgt.x + offsetX).attr('y2', tgt.y + offsetY)
       .attr('stroke', '#94a3b8').attr('stroke-width', 1.5)
       .attr('marker-end', 'url(#er-arrow)')
   })
 
   // 基数标注
   relationships.forEach(r => {
-    const fn = nodes.find(n => n.refId === (r.from_entity || r.from) && n.type === 'entity')
-    const tn = nodes.find(n => n.refId === (r.to_entity || r.to) && n.type === 'entity')
-    const rn = nodes.find(n => n.refId === r.id && n.type === 'relationship')
+    const fn = allNodes.find(n => n.refId === (r.from_entity || r.from) && n.type === 'entity')
+    const tn = allNodes.find(n => n.refId === (r.to_entity || r.to) && n.type === 'entity')
+    const rn = allNodes.find(n => n.refId === r.id && n.type === 'relationship')
     const fromCard = r.from_cardinality || r.cardinality?.from || 'N'
     const toCard = r.to_cardinality || r.cardinality?.to || 'M'
 
     if (fn && rn) {
-      const mx = (fn.x + rn.x) / 2, my = (fn.y + rn.y) / 2 - 14
+      const mx = (fn.x + rn.x) / 2 + offsetX, my = (fn.y + rn.y) / 2 + offsetY - 14
       g.append('text').attr('x', mx).attr('y', my)
         .attr('text-anchor', 'middle').attr('font-size', 12)
         .attr('font-family', 'JetBrains Mono,monospace').attr('fill', '#0891b2')
         .attr('font-weight', '600').text(fromCard)
     }
     if (tn && rn) {
-      const mx = (tn.x + rn.x) / 2, my = (tn.y + rn.y) / 2 - 14
+      const mx = (tn.x + rn.x) / 2 + offsetX, my = (tn.y + rn.y) / 2 + offsetY - 14
       g.append('text').attr('x', mx).attr('y', my)
         .attr('text-anchor', 'middle').attr('font-size', 12)
         .attr('font-family', 'JetBrains Mono,monospace').attr('fill', '#0891b2')
@@ -171,9 +164,9 @@ function renderERDiagram(data) {
   })
 
   // 实体矩形
-  nodes.filter(n => n.type === 'entity').forEach(node => {
+  allNodes.filter(n => n.type === 'entity').forEach(node => {
     const ew = 120, eh = 44
-    const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
+    const gNode = g.append('g').attr('transform', `translate(${node.x + offsetX}, ${node.y + offsetY})`)
 
     gNode.append('rect')
       .attr('x', -ew/2).attr('y', -eh/2).attr('width', ew).attr('height', eh).attr('rx', 4)
@@ -188,20 +181,20 @@ function renderERDiagram(data) {
   })
 
   // 属性椭圆
-  nodes.filter(n => n.type === 'attribute').forEach(node => {
+  allNodes.filter(n => n.type === 'attribute').forEach(node => {
     const aw = Math.max(50, node.name.length * 14 + 20), ah = 28
-    const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
+    const gNode = g.append('g').attr('transform', `translate(${node.x + offsetX}, ${node.y + offsetY})`)
 
     gNode.append('ellipse')
       .attr('cx', 0).attr('cy', 0).attr('rx', aw/2).attr('ry', ah/2)
-      .attr('fill', '#f0fdf4').attr('stroke', '#16a34a').attr('stroke-width', node.isPrimaryKey ? 2.5 : 1.5)
+      .attr('fill', '#f0fdf4').attr('stroke', node.isPK ? '#16a34a' : '#4ade80').attr('stroke-width', node.isPK ? 2.5 : 1.5)
 
     const txt = gNode.append('text')
       .attr('x', 0).attr('y', 3)
       .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
       .attr('font-size', 11).attr('font-family', 'JetBrains Mono,monospace')
-      .attr('fill', node.isPrimaryKey ? '#166534' : '#4b5563')
-    if (node.isPrimaryKey) {
+      .attr('fill', node.isPK ? '#166534' : '#4b5563')
+    if (node.isPK) {
       txt.append('tspan').attr('text-decoration', 'underline').text(node.name)
     } else {
       txt.text(node.name)
@@ -209,9 +202,9 @@ function renderERDiagram(data) {
   })
 
   // 关系菱形
-  nodes.filter(n => n.type === 'relationship').forEach(node => {
+  allNodes.filter(n => n.type === 'relationship').forEach(node => {
     const rw = 100, rh = 56
-    const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
+    const gNode = g.append('g').attr('transform', `translate(${node.x + offsetX}, ${node.y + offsetY})`)
 
     gNode.append('polygon')
       .attr('points', `0,${-rh/2} ${rw/2},0 0,${rh/2} ${-rw/2},0`)
@@ -270,14 +263,18 @@ function downloadSVG() {
     <div class="flex flex-1 overflow-hidden relative">
       <aside class="w-sidebar_width bg-surface-container-lowest border-r border-outline-variant flex flex-col h-full shrink-0 z-10">
         <div class="p-4 border-b border-outline-variant">
-          <h2 class="font-label-mono text-label-mono text-on-surface-variant mb-2">E-R 图描述</h2>
-          <p class="font-code-sm text-code-sm text-secondary">用自然语言描述实体、关系和属性</p>
+          <h2 class="font-label-mono text-label-mono text-on-surface-variant mb-2">输入方式</h2>
+          <div class="flex gap-1 p-1 bg-surface-container-low rounded-lg">
+            <button @click="inputMode = 'text'" :class="inputMode === 'text' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">自然语言</button>
+            <button @click="inputMode = 'sql'" :class="inputMode === 'sql' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">SQL 语句</button>
+          </div>
         </div>
         <div class="flex-1 overflow-y-auto p-4">
-          <div class="flex flex-col gap-2">
-            <label class="font-label-mono text-label-mono text-on-surface-variant">描述</label>
-            <textarea v-model="inputText" class="bg-surface-container-low border-none rounded-lg p-3 font-code-sm text-code-sm text-on-surface focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest resize-none h-48" placeholder="学生选课系统：学生有学号、姓名、邮箱、入学日期；课程有课程号、名称、学分；学生和课程是多对多的选课关系，包含选课日期和成绩"></textarea>
-          </div>
+          <textarea
+            v-model="inputText"
+            class="w-full h-48 bg-surface-container-low border-none rounded-lg p-3 font-code-sm text-code-sm text-on-surface focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest resize-none"
+            :placeholder="inputMode === 'sql' ? 'CREATE TABLE 学生 (\n  学号 VARCHAR(20) PRIMARY KEY,\n  姓名 VARCHAR(50),\n  邮箱 VARCHAR(100)\n);\n\nCREATE TABLE 课程 (\n  课程号 VARCHAR(20) PRIMARY KEY,\n  名称 VARCHAR(100),\n  学分 INT\n);\n\nCREATE TABLE 选课 (\n  学号 VARCHAR(20),\n  课程号 VARCHAR(20),\n  选课日期 DATE,\n  成绩 DECIMAL(5,2),\n  PRIMARY KEY (学号, 课程号),\n  FOREIGN KEY (学号) REFERENCES 学生(学号),\n  FOREIGN KEY (课程号) REFERENCES 课程(课程号)\n);' : '学生选课系统：学生有学号、姓名、邮箱；课程有课程号、名称、学分；学生和课程是多对多的选课关系，包含选课日期和成绩'"
+          ></textarea>
           <button @click="generate" :disabled="loading || !inputText.trim()" class="mt-4 w-full bg-primary-container text-on-primary rounded-lg py-2 font-label-mono text-label-mono hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
             <span v-if="loading" class="material-symbols-outlined animate-spin text-sm">progress_activity</span>
             <span v-else class="material-symbols-outlined text-sm">auto_awesome</span>
