@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 from schemas import (
@@ -24,9 +24,10 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-API_KEY = os.getenv("ANTHROPIC_AUTH_TOKEN", "")
-BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
-MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+# API 配置 — 兼容 OpenAI 格式的 Qwen/GLM 代理
+API_KEY = os.getenv("API_KEY", os.getenv("ANTHROPIC_AUTH_TOKEN", ""))
+BASE_URL = os.getenv("BASE_URL", os.getenv("ANTHROPIC_BASE_URL", "https://api.openai.com/v1"))
+MODEL = os.getenv("MODEL", os.getenv("ANTHROPIC_MODEL", "qwen-plus"))
 
 
 @asynccontextmanager
@@ -47,10 +48,10 @@ app.add_middleware(
 )
 
 
-def get_client() -> AsyncAnthropic:
+def get_client() -> AsyncOpenAI:
     if not API_KEY:
-        raise HTTPException(status_code=500, detail="未配置 ANTHROPIC_AUTH_TOKEN")
-    return AsyncAnthropic(api_key=API_KEY, base_url=BASE_URL)
+        raise HTTPException(status_code=500, detail="未配置 API_KEY")
+    return AsyncOpenAI(api_key=API_KEY, base_url=BASE_URL)
 
 
 @app.get("/api/health")
@@ -62,7 +63,6 @@ def _extract_json(text: str) -> dict:
     """从 AI 回复中提取 JSON（兼容 ```json 代码块包裹）"""
     text = text.strip()
     if text.startswith("```"):
-        # 去掉 ```json ... ``` 包裹
         lines = text.split("\n")
         if lines[0].startswith("```"):
             lines = lines[1:]
@@ -75,32 +75,30 @@ def _extract_json(text: str) -> dict:
 async def _call_ai(system_prompt: str, user_content: str, json_schema: dict) -> dict:
     client = get_client()
     try:
-        response = await client.messages.create(
+        response = await client.chat.completions.create(
             model=MODEL,
-            max_tokens=4096,
-            system=system_prompt,
             messages=[
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            tools=[
-                {
-                    "name": "output_diagram",
-                    "description": "输出结构化图表数据",
-                    "input_schema": json_schema,
-                }
-            ],
-            tool_choice={"type": "tool", "name": "output_diagram"},
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "diagram_output",
+                    "schema": json_schema,
+                    "strict": True,
+                },
+            },
         )
     except Exception as e:
-        logger.error(f"Anthropic API error: {e}")
+        logger.error(f"AI API error: {e}")
         raise HTTPException(status_code=500, detail=f"AI 调用失败: {str(e)}")
 
-    # 从 tool_use 中提取 JSON
-    for block in response.content:
-        if block.type == "tool_use" and block.name == "output_diagram":
-            return block.input
-
-    raise HTTPException(status_code=500, detail="AI 未返回有效的结构化数据")
+    try:
+        return _extract_json(response.choices[0].message.content)
+    except Exception as e:
+        logger.error(f"JSON parse error: {e}, raw: {response.choices[0].message.content[:200]}")
+        raise HTTPException(status_code=500, detail="AI 返回格式解析失败")
 
 
 @app.post("/api/generate")
@@ -111,10 +109,35 @@ async def generate(req: DiagramGenerateRequest):
     data = await _call_ai(system_prompt, req.description, json_schema)
 
     if req.type == "flowchart":
-        flowchart_data = FlowchartData(**data)
+        # 兼容旧 schema 的字段映射
+        nodes = [{"id": n["id"], "type": n["type"], "label": n["text"]} for n in data.get("nodes", [])]
+        edges = [{"from": e["from"], "to": e["to"], "label": e.get("label", "")} for e in data.get("edges", [])]
+        flowchart_data = FlowchartData(nodes=nodes, edges=edges)
         return DiagramResponse(type=req.type, data=flowchart_data)
     else:
-        er_data = ERDiagramData(**data)
+        # ER 图字段映射
+        entities = []
+        for e in data.get("entities", []):
+            entities.append({
+                "id": e["id"],
+                "name": e["name"],
+                "attributes": [
+                    {"name": a["name"], "is_primary_key": a.get("primary_key", False)}
+                    for a in e.get("attributes", [])
+                ]
+            })
+        relationships = []
+        for r in data.get("relationships", []):
+            relationships.append({
+                "id": r["id"],
+                "name": r["name"],
+                "from_entity": r["from"],
+                "to_entity": r["to"],
+                "from_cardinality": r.get("cardinality", {}).get("from", "N"),
+                "to_cardinality": r.get("cardinality", {}).get("to", "M"),
+                "attributes": []
+            })
+        er_data = ERDiagramData(entities=entities, relationships=relationships)
         return DiagramResponse(type=req.type, data=er_data)
 
 
@@ -127,8 +150,31 @@ async def regenerate(req: DiagramRegenerateRequest):
     data = await _call_ai(system_prompt, user_content, json_schema)
 
     if req.type == "flowchart":
-        flowchart_data = FlowchartData(**data)
+        nodes = [{"id": n["id"], "type": n["type"], "label": n["text"]} for n in data.get("nodes", [])]
+        edges = [{"from": e["from"], "to": e["to"], "label": e.get("label", "")} for e in data.get("edges", [])]
+        flowchart_data = FlowchartData(nodes=nodes, edges=edges)
         return DiagramResponse(type=req.type, data=flowchart_data)
     else:
-        er_data = ERDiagramData(**data)
+        entities = []
+        for e in data.get("entities", []):
+            entities.append({
+                "id": e["id"],
+                "name": e["name"],
+                "attributes": [
+                    {"name": a["name"], "is_primary_key": a.get("primary_key", False)}
+                    for a in e.get("attributes", [])
+                ]
+            })
+        relationships = []
+        for r in data.get("relationships", []):
+            relationships.append({
+                "id": r["id"],
+                "name": r["name"],
+                "from_entity": r["from"],
+                "to_entity": r["to"],
+                "from_cardinality": r.get("cardinality", {}).get("from", "N"),
+                "to_cardinality": r.get("cardinality", {}).get("to", "M"),
+                "attributes": []
+            })
+        er_data = ERDiagramData(entities=entities, relationships=relationships)
         return DiagramResponse(type=req.type, data=er_data)

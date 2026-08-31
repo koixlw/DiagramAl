@@ -17,22 +17,38 @@ let currentZoom = 1
 
 // 节点尺寸
 const ND = {
-  start:     { w: 150, h: 46 },
-  end:       { w: 150, h: 46 },
-  process:   { w: 170, h: 54 },
-  decision:  { w: 160, h: 76 },
-  io:        { w: 170, h: 46 },
-  connector: { w: 34,  h: 34 },
+  start_end:    { w: 150, h: 46 },
+  start:        { w: 150, h: 46 },
+  end:          { w: 150, h: 46 },
+  process:      { w: 170, h: 54 },
+  decision:     { w: 160, h: 76 },
+  input_output: { w: 170, h: 46 },
+  io:           { w: 170, h: 46 },
+  connector:    { w: 34,  h: 34 },
 }
 
 // 颜色
 const CL = {
-  start:     { fill: '#d1fae5', stroke: '#059669', text: '#064e3b' },
-  end:       { fill: '#fee2e2', stroke: '#dc2626', text: '#7f1d1d' },
-  process:   { fill: '#dbeafe', stroke: '#2563eb', text: '#1e3a5f' },
-  decision:  { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' },
-  io:        { fill: '#ede9fe', stroke: '#7c3aed', text: '#4c1d95' },
-  connector: { fill: '#f3f4f6', stroke: '#6b7280', text: '#1f2937' },
+  start_end:    { fill: '#d1fae5', stroke: '#059669', text: '#064e3b' },
+  start:        { fill: '#d1fae5', stroke: '#059669', text: '#064e3b' },
+  end:          { fill: '#fee2e2', stroke: '#dc2626', text: '#7f1d1d' },
+  process:      { fill: '#dbeafe', stroke: '#2563eb', text: '#1e3a5f' },
+  decision:     { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' },
+  input_output: { fill: '#ede9fe', stroke: '#7c3aed', text: '#4c1d95' },
+  io:           { fill: '#ede9fe', stroke: '#7c3aed', text: '#4c1d95' },
+  connector:    { fill: '#f3f4f6', stroke: '#6b7280', text: '#1f2937' },
+}
+
+// 类型映射（兼容 AI 返回的类型）
+function mapNodeType(t) {
+  if (t === 'start_end') return 'start_end'
+  if (t === 'start') return 'start'
+  if (t === 'end') return 'end'
+  if (t === 'process') return 'process'
+  if (t === 'decision') return 'decision'
+  if (t === 'input_output') return 'input_output'
+  if (t === 'io') return 'io'
+  return 'process'
 }
 
 async function generate() {
@@ -61,15 +77,18 @@ async function generate() {
  * 使用 ELK.js 进行专业流程图布局
  */
 async function computeLayout(nodes, edges) {
-  const elkNodes = nodes.map(n => ({
-    id: n.id,
-    width: (ND[n.type] || ND.process).w,
-    height: (ND[n.type] || ND.process).h,
-    labels: [{ text: n.label, width: (ND[n.type] || ND.process).w - 16 }],
-    layoutOptions: {
-      'elk.nodeLabels.placement': 'INSIDE V_CENTER H_CENTER'
+  const elkNodes = nodes.map(n => {
+    const t = mapNodeType(n.type)
+    return {
+      id: n.id,
+      width: (ND[t] || ND.process).w,
+      height: (ND[t] || ND.process).h,
+      labels: [{ text: n.text || n.label || '', width: (ND[t] || ND.process).w - 16 }],
+      layoutOptions: {
+        'elk.nodeLabels.placement': 'INSIDE V_CENTER H_CENTER'
+      }
     }
-  }))
+  })
 
   const elkEdges = edges.map((e, i) => ({
     id: `edge-${i}`,
@@ -196,15 +215,17 @@ async function renderFlowchart(data) {
   layoutedGraph.children?.forEach(ln => {
     const origNode = nodes.find(n => n.id === ln.id)
     if (!origNode || !ln.x || !ln.y) return
-    const c = CL[origNode.type] || CL.process
-    const nd = ND[origNode.type] || ND.process
+    const nodeType = mapNodeType(origNode.type)
+    const c = CL[nodeType] || CL.process
+    const nd = ND[nodeType] || ND.process
     const cx = ln.x + ln.width / 2
     const cy = ln.y + ln.height / 2
 
-    svg += makeShape(origNode.type, nd.w, nd.h, cx, cy, c)
+    svg += makeShape(nodeType, nd.w, nd.h, cx, cy, c)
 
-    const ty = origNode.type === 'decision' ? cy + 2 : cy + 3
-    svg += `<text x="${cx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${c.text}" font-weight="${origNode.type === 'decision' ? 600 : 400}">${origNode.label}</text>`
+    const label = origNode.text || origNode.label || ''
+    const ty = nodeType === 'decision' ? cy + 2 : cy + 3
+    svg += `<text x="${cx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${c.text}" font-weight="${nodeType === 'decision' ? 600 : 400}">${label}</text>`
   })
 
   svg += '</g></svg>'
@@ -220,14 +241,14 @@ function makeShape(type, w, h, cx, cy, c) {
   switch (type) {
     case 'start':
     case 'end':
+    case 'start_end':
       return `<rect x="${cx - w/2}" y="${cy - h/2}" width="${w}" height="${h}" rx="${h/2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"/>`
     case 'process':
       return `<rect x="${cx - w/2}" y="${cy - h/2}" width="${w}" height="${h}" rx="6" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"/>`
-    case 'decision': {
-      const hw = w/2, hh = h/2
-      return `<polygon points="${cx},${cy-hh} ${cx+hw},${cy} ${cx},${cy+hh} ${cx-hw},${cy}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"/>`
-    }
-    case 'io': {
+    case 'decision':
+      return `<polygon points="${cx},${cy-h/2} ${cx+w/2},${cy} ${cx},${cy+h/2} ${cx-w/2},${cy}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"/>`
+    case 'io':
+    case 'input_output': {
       const off = 16
       return `<polygon points="${cx-w/2+off},${cy-h/2} ${cx+w/2},${cy-h/2} ${cx+w/2-off},${cy+h/2} ${cx-w/2},${cy+h/2}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="2"/>`
     }

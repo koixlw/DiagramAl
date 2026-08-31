@@ -22,38 +22,50 @@ class DiagramRegenerateRequest(BaseModel):
 
 
 # ============================================================
-# 流程图输出模型
+# 流程图输出模型（AI 返回格式）
 # ============================================================
 
 class FlowchartNode(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     id: str = Field(..., description="节点唯一标识")
-    type: Literal["start", "end", "process", "decision", "io", "connector"] = Field(
+    type: Literal["start_end", "process", "decision", "input_output", "connector"] = Field(
         ..., description="节点类型"
     )
-    label: str = Field(..., description="节点显示文本")
+    text: str = Field(..., description="节点显示文本")
 
 
 class FlowchartEdge(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     from_: str = Field(..., alias="from", description="起始节点 ID")
     to: str = Field(..., alias="to", description="目标节点 ID")
-    label: Optional[str] = Field(None, description="连线标签（如 是/否）")
+    label: Optional[str] = Field("", description="连线标签（如 是/否）")
 
 
-class FlowchartData(BaseModel):
+class FlowchartRaw(BaseModel):
+    diagram_type: str
+    title: str = ""
     nodes: List[FlowchartNode] = Field(default_factory=list)
     edges: List[FlowchartEdge] = Field(default_factory=list)
 
 
 # ============================================================
-# ER 图输出模型
+# 内部统一数据模型
+# ============================================================
+
+class FlowchartData(BaseModel):
+    nodes: List[dict] = Field(default_factory=list)
+    edges: List[dict] = Field(default_factory=list)
+
+
+# ============================================================
+# ER 图输出模型（AI 返回格式）
 # ============================================================
 
 class ERAttribute(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
+    id: str = ""
     name: str = Field(..., description="属性名称")
-    is_primary_key: bool = Field(default=False, description="是否为主键")
+    primary_key: bool = Field(default=False, description="是否为主键")
 
 
 class EREntity(BaseModel):
@@ -67,16 +79,22 @@ class ERRelationship(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     id: str = Field(..., description="关系唯一标识")
     name: str = Field(..., description="关系名称")
-    from_entity: str = Field(..., description="起始实体 ID")
-    to_entity: str = Field(..., description="目标实体 ID")
-    from_cardinality: str = Field(..., description="起始端基数，如 1/N/M")
-    to_cardinality: str = Field(..., description="目标端基数，如 1/N/M")
-    attributes: List[ERAttribute] = Field(default_factory=list, description="关系自身的属性")
+    from_: str = Field(..., alias="from", description="起始实体 ID")
+    to: str = Field(..., alias="to", description="目标实体 ID")
+    cardinality: dict = Field(default_factory=lambda: {"from": "N", "to": "M"})
+    attributes: List[ERAttribute] = Field(default_factory=list)
+
+
+class ERDiagramRaw(BaseModel):
+    diagram_type: str
+    title: str = ""
+    entities: List[EREntity] = Field(default_factory=list)
+    relationships: List[ERRelationship] = Field(default_factory=list)
 
 
 class ERDiagramData(BaseModel):
-    entities: List[EREntity] = Field(default_factory=list)
-    relationships: List[ERRelationship] = Field(default_factory=list)
+    entities: List[dict] = Field(default_factory=list)
+    relationships: List[dict] = Field(default_factory=list)
 
 
 # ============================================================
@@ -90,13 +108,14 @@ class DiagramResponse(BaseModel):
 
 
 # ============================================================
-# OpenAI Structured Outputs JSON Schema
-# 用于强制 AI 输出标准格式
+# OpenAI/通义 JSON Schema
 # ============================================================
 
 FLOWCHART_JSON_SCHEMA = {
     "type": "object",
     "properties": {
+        "diagram_type": {"type": "string", "const": "flowchart"},
+        "title": {"type": "string", "description": "流程图标题"},
         "nodes": {
             "type": "array",
             "items": {
@@ -105,12 +124,12 @@ FLOWCHART_JSON_SCHEMA = {
                     "id": {"type": "string", "description": "节点唯一标识，如 node_1"},
                     "type": {
                         "type": "string",
-                        "enum": ["start", "end", "process", "decision", "io", "connector"],
+                        "enum": ["start_end", "process", "decision", "input_output", "connector"],
                         "description": "节点类型"
                     },
-                    "label": {"type": "string", "description": "节点显示的文本"}
+                    "text": {"type": "string", "description": "节点显示的文本"}
                 },
-                "required": ["id", "type", "label"],
+                "required": ["id", "type", "text"],
                 "additionalProperties": False
             },
             "description": "流程图中的所有节点"
@@ -130,13 +149,15 @@ FLOWCHART_JSON_SCHEMA = {
             "description": "节点之间的连线"
         }
     },
-    "required": ["nodes", "edges"],
+    "required": ["diagram_type", "nodes", "edges"],
     "additionalProperties": False
 }
 
 ER_DIAGRAM_JSON_SCHEMA = {
     "type": "object",
     "properties": {
+        "diagram_type": {"type": "string", "const": "er_diagram"},
+        "title": {"type": "string", "description": "ER 图标题"},
         "entities": {
             "type": "array",
             "items": {
@@ -149,10 +170,11 @@ ER_DIAGRAM_JSON_SCHEMA = {
                         "items": {
                             "type": "object",
                             "properties": {
+                                "id": {"type": "string", "description": "属性唯一标识"},
                                 "name": {"type": "string", "description": "属性名称"},
-                                "is_primary_key": {"type": "boolean", "description": "是否为主键"}
+                                "primary_key": {"type": "boolean", "description": "是否为主键"}
                             },
-                            "required": ["name", "is_primary_key"],
+                            "required": ["name", "primary_key"],
                             "additionalProperties": False
                         },
                         "description": "实体的属性列表"
@@ -170,36 +192,37 @@ ER_DIAGRAM_JSON_SCHEMA = {
                 "properties": {
                     "id": {"type": "string", "description": "关系唯一标识，如 rel_1"},
                     "name": {"type": "string", "description": "关系名称"},
-                    "from_entity": {"type": "string", "description": "起始实体 ID"},
-                    "to_entity": {"type": "string", "description": "目标实体 ID"},
-                    "from_cardinality": {
-                        "type": "string",
-                        "description": "起始端基数，1、N 或 M"
-                    },
-                    "to_cardinality": {
-                        "type": "string",
-                        "description": "目标端基数，1、N 或 M"
+                    "from": {"type": "string", "description": "起始实体 ID"},
+                    "to": {"type": "string", "description": "目标实体 ID"},
+                    "cardinality": {
+                        "type": "object",
+                        "properties": {
+                            "from": {"type": "string", "enum": ["1", "N", "M"], "description": "起始端基数"},
+                            "to": {"type": "string", "enum": ["1", "N", "M"], "description": "目标端基数"}
+                        },
+                        "required": ["from", "to"],
+                        "additionalProperties": False
                     },
                     "attributes": {
                         "type": "array",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "name": {"type": "string", "description": "关系属性名称"},
-                                "is_primary_key": {"type": "boolean", "description": "是否为主键"}
+                                "id": {"type": "string"},
+                                "name": {"type": "string"},
+                                "primary_key": {"type": "boolean"}
                             },
-                            "required": ["name", "is_primary_key"],
                             "additionalProperties": False
                         },
                         "description": "关系自身的属性"
                     }
                 },
-                "required": ["id", "name", "from_entity", "to_entity", "from_cardinality", "to_cardinality"],
+                "required": ["id", "name", "from", "to", "cardinality"],
                 "additionalProperties": False
             },
             "description": "实体之间的关系"
         }
     },
-    "required": ["entities", "relationships"],
+    "required": ["diagram_type", "entities", "relationships"],
     "additionalProperties": False
 }
