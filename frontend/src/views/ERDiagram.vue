@@ -53,25 +53,49 @@ function renderERDiagram(data) {
       refId: e.id,
       type: 'entity',
       name: e.name,
-      attributes: e.attributes || [],
+    })
+    // 属性节点（椭圆）
+    (e.attributes || []).forEach((a, i) => {
+      const attrId = `attr-${e.id}-${i}`
+      nodes.push({
+        id: attrId,
+        type: 'attribute',
+        name: a.name,
+        isPrimaryKey: a.primary_key || a.is_primary_key || false,
+        parentEntity: `e-${e.id}`,
+      })
+      links.push({ source: `e-${e.id}`, target: attrId })
     })
   })
 
   // 关系节点
   relationships.forEach(r => {
+    const relId = `r-${r.id}`
     nodes.push({
-      id: `r-${r.id}`,
+      id: relId,
       refId: r.id,
       type: 'relationship',
       name: r.name,
-      attributes: r.attributes || [],
-      fromEntity: r.from_entity || r.from,
-      toEntity: r.to_entity || r.to,
+      fromEntity: `e-${r.from_entity || r.from}`,
+      toEntity: `e-${r.to_entity || r.to}`,
       fromCard: r.from_cardinality || r.cardinality?.from || 'N',
       toCard: r.to_cardinality || r.cardinality?.to || 'M',
     })
-    links.push({ source: `e-${r.from_entity || r.from}`, target: `r-${r.id}` })
-    links.push({ source: `e-${r.to_entity || r.to}`, target: `r-${r.id}` })
+    links.push({ source: `e-${r.from_entity || r.from}`, target: relId })
+    links.push({ source: `e-${r.to_entity || r.to}`, target: relId })
+
+    // 关系属性
+    (r.attributes || []).forEach((a, i) => {
+      const attrId = `attr-rel-${r.id}-${i}`
+      nodes.push({
+        id: attrId,
+        type: 'attribute',
+        name: a.name,
+        isPrimaryKey: a.primary_key || a.is_primary_key || false,
+        parentRel: relId,
+      })
+      links.push({ source: relId, target: attrId })
+    })
   })
 
   const svgW = 800, svgH = 600
@@ -148,37 +172,40 @@ function renderERDiagram(data) {
 
   // 实体矩形
   nodes.filter(n => n.type === 'entity').forEach(node => {
-    const eh = Math.max(40, 30 + node.attributes.length * 20)
-    const ew = 140
+    const ew = 120, eh = 44
     const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
 
     gNode.append('rect')
       .attr('x', -ew/2).attr('y', -eh/2).attr('width', ew).attr('height', eh).attr('rx', 4)
       .attr('fill', '#dbeafe').attr('stroke', '#2563eb').attr('stroke-width', 2)
 
-    gNode.append('line')
-      .attr('x1', -ew/2).attr('y1', -eh/2 + 28).attr('x2', ew/2).attr('y2', -eh/2 + 28)
-      .attr('stroke', '#bfdbfe').attr('stroke-width', 1)
-
     gNode.append('text')
-      .attr('x', 0).attr('y', -eh/2 + 18)
-      .attr('text-anchor', 'middle').attr('font-size', 13).attr('font-weight', '600')
+      .attr('x', 0).attr('y', 4)
+      .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+      .attr('font-size', 13).attr('font-weight', '600')
       .attr('font-family', 'Inter,sans-serif').attr('fill', '#1e40af')
       .text(node.name)
+  })
 
-    node.attributes.forEach((a, i) => {
-      const ay = -eh/2 + 44 + i * 20
-      const txt = gNode.append('text')
-        .attr('x', 0).attr('y', ay)
-        .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
-        .attr('font-size', 11).attr('font-family', 'JetBrains Mono,monospace')
-        .attr('fill', '#64748b')
-      if (a.primary_key || a.is_primary_key) {
-        txt.append('tspan').attr('text-decoration', 'underline').text(a.name)
-      } else {
-        txt.text(a.name)
-      }
-    })
+  // 属性椭圆
+  nodes.filter(n => n.type === 'attribute').forEach(node => {
+    const aw = Math.max(50, node.name.length * 14 + 20), ah = 28
+    const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
+
+    gNode.append('ellipse')
+      .attr('cx', 0).attr('cy', 0).attr('rx', aw/2).attr('ry', ah/2)
+      .attr('fill', '#f0fdf4').attr('stroke', '#16a34a').attr('stroke-width', node.isPrimaryKey ? 2.5 : 1.5)
+
+    const txt = gNode.append('text')
+      .attr('x', 0).attr('y', 3)
+      .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+      .attr('font-size', 11).attr('font-family', 'JetBrains Mono,monospace')
+      .attr('fill', node.isPrimaryKey ? '#166534' : '#4b5563')
+    if (node.isPrimaryKey) {
+      txt.append('tspan').attr('text-decoration', 'underline').text(node.name)
+    } else {
+      txt.text(node.name)
+    }
   })
 
   // 关系菱形
