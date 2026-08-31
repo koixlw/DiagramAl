@@ -119,17 +119,37 @@ async function computeLayout(nodes, edges) {
     const fromType = fromOrig ? mapNodeType(fromOrig.type) : 'process'
     const isDecision = fromType === 'decision' && e.label
 
-    // 决策节点：从角端口出发
+    // 源端口：根据目标相对位置决定
     let srcPort
     if (isDecision) {
-      srcPort = e.label === '是' ? `${e.from}.bottom` : `${e.from}.${e.label === '否' && (nodes.find(n => n.id === e.to)?.x || 0) > (nodes.find(n => n.id === e.from)?.x || 0) ? 'right' : 'left'}`
+      // 决策节点：从角端口出发
+      srcPort = e.label === '是' ? `${e.from}.bottom` : `${e.from}.left`
+    } else if (Math.abs(fromY - toY) < 80 && Math.abs(fromX - toX) > 50) {
+      // 水平方向连接：从侧边出发
+      srcPort = fromX < toX ? `${e.from}.east` : `${e.from}.west`
     } else {
+      // 垂直方向：从底部出发
       srcPort = `${e.from}.south`
     }
 
-    // 目标端口
+    // 目标端口：根据源和目标相对位置决定
     const toType = toOrig ? mapNodeType(toOrig.type) : 'process'
-    let tgtPort = toType === 'decision' ? `${e.to}.top` : `${e.to}.north`
+    const fromX = fromOrig?.x || 0
+    const toX = toOrig?.x || 0
+    const fromY = fromOrig?.y || 0
+    const toY = toOrig?.y || 0
+
+    let tgtPort
+    if (toType === 'decision') {
+      // 目标为菱形：从顶部角进入
+      tgtPort = `${e.to}.top`
+    } else if (Math.abs(fromY - toY) < 80 && Math.abs(fromX - toX) > 50) {
+      // 水平方向连接（近似同行）：从侧边进入
+      tgtPort = fromX < toX ? `${e.to}.west` : `${e.to}.east`
+    } else {
+      // 垂直方向：从顶部进入
+      tgtPort = `${e.to}.north`
+    }
 
     return {
       id: `edge-${i}`,
