@@ -323,37 +323,47 @@ function renderERDiagram(data) {
       .text(node.name)
   })
 
-  // 拖拽行为（原生鼠标事件，更可靠）
+  // 拖拽行为（原生鼠标事件）
   let draggingNode = null
-  let dragOffsetX = 0, dragOffsetY = 0
+
+  // 先给每个节点组绑定对应的 node 数据
+  g.selectAll('g.node-group').each(function() {
+    const gEl = d3.select(this)
+    const transform = gEl.attr('transform')
+    const match = transform.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/)
+    if (match) {
+      const tx = parseFloat(match[1]), ty = parseFloat(match[2])
+      const node = nodes.find(n => Math.abs(n.x - tx) < 2 && Math.abs(n.y - ty) < 2)
+      if (node) gEl.datum(node)
+    }
+  })
 
   g.selectAll('g.node-group')
-    .attr('style', 'cursor: grab; pointer-events: all')
+    .attr('style', 'cursor: grab')
     .on('mousedown', function(event) {
       event.stopPropagation()
+      event.preventDefault()
       const gEl = d3.select(this)
-      draggingNode = gEl.datum()
-      if (!draggingNode) return
+      const node = gEl.datum()
+      if (!node) return
+      draggingNode = { node, el: gEl }
       gEl.attr('style', 'cursor: grabbing')
-      d3.select(this).raise()
+      gEl.raise()
     })
 
-  svg.on('mousemove', function(event) {
+  d3.select(window).on('mousemove.drag', function(event) {
     if (!draggingNode) return
+    const { node, el } = draggingNode
     const [mx, my] = d3.pointer(event, g.node())
-    draggingNode.x = mx
-    draggingNode.y = my
-    g.selectAll('g.node-group').filter(function() {
-      return d3.select(this).datum() === draggingNode
-    }).attr('transform', `translate(${mx}, ${my})`)
+    node.x = mx
+    node.y = my
+    el.attr('transform', `translate(${mx}, ${my})`)
     updateLines()
   })
 
-  svg.on('mouseup', function() {
+  d3.select(window).on('mouseup.drag', function() {
     if (draggingNode) {
-      g.selectAll('g.node-group').filter(function() {
-        return d3.select(this).datum() === draggingNode
-      }).attr('style', 'cursor: grab')
+      draggingNode.el.attr('style', 'cursor: grab')
       draggingNode = null
     }
   })
