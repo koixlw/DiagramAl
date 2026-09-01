@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import ELK from 'elkjs/lib/elk.bundled.js'
 
@@ -18,6 +18,12 @@ let currentZoom = 1
 let currentFlowData = null
 const showCode = ref(false)
 const generatedCode = ref('')
+
+const placeholder = computed(() => {
+  return inputMode.value === 'code'
+    ? 'def check_prime(n):\n    if n <= 1: return False\n    for i in range(2, int(n**0.5)+1):\n        if n % i == 0: return False\n    return True'
+    : '在此输入逻辑，例如：\n如果支付成功 -> 发送邮件\n如果支付失败 -> 提示重试'
+})
 
 function parseToCode(data) {
   const nodes = (data?.nodes || [])
@@ -514,7 +520,7 @@ function downloadPNG() {
               <button @click="inputMode = 'text'" :class="inputMode === 'text' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">自然语言</button>
               <button @click="inputMode = 'code'" :class="inputMode === 'code' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">代码</button>
             </div>
-            <textarea v-model="inputText" class="w-full h-40 p-3 bg-surface-container-lowest border border-outline-variant rounded focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-code-sm text-code-sm resize-none text-on-surface" :placeholder="inputMode === 'code' ? 'def check_prime(n):\n    if n <= 1: return False\n    for i in range(2, int(n**0.5)+1):\n        if n % i == 0: return False\n    return True' : '在此输入逻辑，例如：&#10;如果支付成功 -> 发送邮件&#10;如果支付失败 -> 提示重试'"></textarea>
+            <textarea v-model="inputText" class="w-full h-40 p-3 bg-surface-container-lowest border border-outline-variant rounded focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-code-sm text-code-sm resize-none text-on-surface" :placeholder="placeholder"></textarea>
           </div>
           <button @click="generate" :disabled="loading || !inputText.trim()" class="w-full py-2 bg-primary-container text-on-primary rounded hover:bg-primary transition-colors font-label-mono text-label-mono font-bold flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
             <span v-if="loading" class="material-symbols-outlined animate-spin">progress_activity</span>
