@@ -40,63 +40,49 @@ async function generate() {
 }
 
 function renderERDiagram(data) {
-  const entities = data.entities || []
-  const relationships = data.relationships || []
+  const entities = data?.entities || []
+  const relationships = data?.relationships || []
 
-  const nodes = []
-  const links = []
-
-  // 实体节点
-  entities.forEach(e => {
-    nodes.push({
-      id: `e-${e.id}`,
-      refId: e.id,
-      type: 'entity',
-      name: e.name,
-    })
-    // 属性节点（椭圆）
-    (e.attributes || []).forEach((a, i) => {
-      const attrId = `attr-${e.id}-${i}`
-      nodes.push({
-        id: attrId,
-        type: 'attribute',
-        name: a.name,
-        isPrimaryKey: a.primary_key || a.is_primary_key || false,
-        parentEntity: `e-${e.id}`,
-      })
-      links.push({ source: `e-${e.id}`, target: attrId })
-    })
+  // 用 flatMap 构建所有节点（避开 Vue 编译器对 push() 的 bug）
+  const entityParts = entities.flatMap(e => {
+    const attrs = (e.attributes || []).map((a, i) => ({
+      id: `attr-${e.id}-${i}`,
+      type: 'attribute',
+      name: a.name,
+      isPrimaryKey: a.primary_key || a.is_primary_key || false,
+      parentEntity: `e-${e.id}`,
+    }))
+    return [{ id: `e-${e.id}`, refId: e.id, type: 'entity', name: e.name }, ...attrs]
   })
 
-  // 关系节点
-  relationships.forEach(r => {
+  const relParts = relationships.flatMap(r => {
     const relId = `r-${r.id}`
-    nodes.push({
-      id: relId,
-      refId: r.id,
-      type: 'relationship',
-      name: r.name,
-      fromEntity: `e-${r.from_entity || r.from}`,
-      toEntity: `e-${r.to_entity || r.to}`,
-      fromCard: r.from_cardinality || r.cardinality?.from || 'N',
-      toCard: r.to_cardinality || r.cardinality?.to || 'M',
-    })
-    links.push({ source: `e-${r.from_entity || r.from}`, target: relId })
-    links.push({ source: `e-${r.to_entity || r.to}`, target: relId })
-
-    // 关系属性
-    (r.attributes || []).forEach((a, i) => {
-      const attrId = `attr-rel-${r.id}-${i}`
-      nodes.push({
-        id: attrId,
-        type: 'attribute',
-        name: a.name,
-        isPrimaryKey: a.primary_key || a.is_primary_key || false,
-        parentRel: relId,
-      })
-      links.push({ source: relId, target: attrId })
-    })
+    const attrs = (r.attributes || []).map((a, i) => ({
+      id: `attr-rel-${r.id}-${i}`,
+      type: 'attribute',
+      name: a.name,
+      isPrimaryKey: a.primary_key || a.is_primary_key || false,
+      parentRel: relId,
+    }))
+    return [{ id: relId, refId: r.id, type: 'relationship', name: r.name, fromEntity: `e-${r.from_entity || r.from}`, toEntity: `e-${r.to_entity || r.to}`, fromCard: r.from_cardinality || r.cardinality?.from || 'N', toCard: r.to_cardinality || r.cardinality?.to || 'M' }, ...attrs]
   })
+
+  const nodes = entityParts.concat(relParts)
+
+  // 用 flatMap + concat 构建所有连线
+  const attrLinks = entities.flatMap(e =>
+    (e.attributes || []).map((a, i) => ({ source: `e-${e.id}`, target: `attr-${e.id}-${i}` }))
+  )
+  const relLinks = relationships.flatMap(r => {
+    const relId = `r-${r.id}`
+    const base = [
+      { source: `e-${r.from_entity || r.from}`, target: relId },
+      { source: `e-${r.to_entity || r.to}`, target: relId }
+    ]
+    const attrL = (r.attributes || []).map((a, i) => ({ source: relId, target: `attr-rel-${r.id}-${i}` }))
+    return base.concat(attrL)
+  })
+  const links = attrLinks.concat(relLinks)
 
   const svgW = 800, svgH = 600
   const container = document.getElementById('er-canvas')
