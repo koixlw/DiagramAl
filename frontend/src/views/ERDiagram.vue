@@ -14,8 +14,50 @@ const hasDiagram = ref(false)
 const svgContent = ref('')
 const zoomLevel = ref(100)
 let currentZoom = 1
+let currentDiagramData = null
 const history = ref([])
 const showHistory = ref(false)
+const showSettings = ref(false)
+
+// 颜色配置
+const defaultColors = {
+  entity: { fill: '#dbeafe', stroke: '#2563eb', text: '#1e40af' },
+  attribute: { fill: '#f0fdf4', stroke: '#4ade80', text: '#4b5563', pkStroke: '#16a34a', pkText: '#166534' },
+  relationship: { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' },
+  line: '#94a3b8',
+  cardinality: '#0891b2',
+}
+const colors = ref(JSON.parse(JSON.stringify(defaultColors)))
+
+// 加载保存的颜色
+try {
+  const savedColors = localStorage.getItem('er-colors')
+  if (savedColors) colors.value = JSON.parse(savedColors)
+} catch(e) {}
+
+// 颜色变化时自动重新渲染
+watch(colors, () => {
+  localStorage.setItem('er-colors', JSON.stringify(colors.value))
+  if (currentDiagramData && hasDiagram.value) {
+    renderERDiagram(currentDiagramData)
+  }
+}, { deep: true })
+
+// 样式预设
+const presets = [
+  { name: '默认蓝', entity: { fill: '#dbeafe', stroke: '#2563eb', text: '#1e40af' }, attribute: { fill: '#f0fdf4', stroke: '#4ade80', text: '#4b5563', pkStroke: '#16a34a', pkText: '#166534' }, relationship: { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' }, line: '#94a3b8', cardinality: '#0891b2' },
+  { name: '紫色调', entity: { fill: '#f3e8ff', stroke: '#a855f7', text: '#6b21a8' }, attribute: { fill: '#fdf2f8', stroke: '#f472b6', text: '#831843', pkStroke: '#ec4899', pkText: '#9d174d' }, relationship: { fill: '#fef9c3', stroke: '#eab308', text: '#854d0e' }, line: '#a78bfa', cardinality: '#7c3aed' },
+  { name: '深色系', entity: { fill: '#1e3a5f', stroke: '#60a5fa', text: '#dbeafe' }, attribute: { fill: '#14532d', stroke: '#4ade80', text: '#bbf7d0', pkStroke: '#22c55e', pkText: '#86efac' }, relationship: { fill: '#451a03', stroke: '#f59e0b', text: '#fef3c7' }, line: '#64748b', cardinality: '#38bdf8' },
+  { name: '复古绿', entity: { fill: '#ecfdf5', stroke: '#059669', text: '#064e3b' }, attribute: { fill: '#eff6ff', stroke: '#3b82f6', text: '#1e3a5f', pkStroke: '#2563eb', pkText: '#1e40af' }, relationship: { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' }, line: '#6b7280', cardinality: '#0891b2' },
+  { name: '暖色调', entity: { fill: '#fff7ed', stroke: '#ea580c', text: '#7c2d12' }, attribute: { fill: '#f0fdf4', stroke: '#22c55e', text: '#166534', pkStroke: '#16a34a', pkText: '#15803d' }, relationship: { fill: '#fef2f2', stroke: '#ef4444', text: '#7f1d1d' }, line: '#9ca3af', cardinality: '#dc2626' },
+]
+
+function applyPreset(preset) {
+  colors.value = JSON.parse(JSON.stringify(preset))
+  if (svgContent.value && hasDiagram.value) {
+    renderERDiagram(currentDiagramData)
+  }
+}
 
 // 加载历史
 try {
@@ -59,6 +101,7 @@ async function generate() {
     const resData = await res.json()
     const diagramData = resData.data || resData
     renderERDiagram(diagramData)
+    currentDiagramData = diagramData
     saveHistory(inputText.value, inputMode.value, diagramData)
     hasDiagram.value = true
   } catch (e) {
@@ -264,7 +307,7 @@ function renderERDiagram(data) {
     g.append('line')
       .attr('x1', src.x).attr('y1', src.y)
       .attr('x2', tgt.x).attr('y2', tgt.y)
-      .attr('stroke', '#94a3b8').attr('stroke-width', 1.5)
+      .attr('stroke', colors.value.line).attr('stroke-width', 1.5)
       .attr('marker-end', 'url(#er-arrow)')
   })
 
@@ -284,7 +327,7 @@ function renderERDiagram(data) {
       const gText = g.append('g').attr('class', 'card-group')
         .attr('transform', `translate(${mx}, ${my})`).datum(cardNode)
       gText.append('text').attr('text-anchor', 'middle').attr('font-size', 12)
-        .attr('font-family', 'JetBrains Mono,monospace').attr('fill', '#0891b2')
+        .attr('font-family', 'JetBrains Mono,monospace').attr('fill', colors.value.cardinality)
         .attr('font-weight', '600').text(fromCard)
     }
     if (tn && rn) {
@@ -294,7 +337,7 @@ function renderERDiagram(data) {
       const gText = g.append('g').attr('class', 'card-group')
         .attr('transform', `translate(${mx}, ${my})`).datum(cardNode)
       gText.append('text').attr('text-anchor', 'middle').attr('font-size', 12)
-        .attr('font-family', 'JetBrains Mono,monospace').attr('fill', '#0891b2')
+        .attr('font-family', 'JetBrains Mono,monospace').attr('fill', colors.value.cardinality)
         .attr('font-weight', '600').text(toCard)
     }
   })
@@ -306,13 +349,13 @@ function renderERDiagram(data) {
 
     gNode.append('rect')
       .attr('x', -ew/2).attr('y', -eh/2).attr('width', ew).attr('height', eh).attr('rx', 4)
-      .attr('fill', '#dbeafe').attr('stroke', '#2563eb').attr('stroke-width', 2)
+      .attr('fill', colors.value.entity.fill).attr('stroke', colors.value.entity.stroke).attr('stroke-width', 2)
 
     gNode.append('text')
       .attr('x', 0).attr('y', 4)
       .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
       .attr('font-size', 13).attr('font-weight', '600')
-      .attr('font-family', 'Inter,sans-serif').attr('fill', '#1e40af')
+      .attr('font-family', 'Inter,sans-serif').attr('fill', colors.value.entity.text)
       .text(node.name)
   })
 
@@ -323,13 +366,15 @@ function renderERDiagram(data) {
 
     gNode.append('ellipse')
       .attr('cx', 0).attr('cy', 0).attr('rx', aw/2).attr('ry', ah/2)
-      .attr('fill', '#f0fdf4').attr('stroke', '#16a34a').attr('stroke-width', node.isPrimaryKey ? 2.5 : 1.5)
+      .attr('fill', colors.value.attribute.fill)
+      .attr('stroke', node.isPrimaryKey ? colors.value.attribute.pkStroke : colors.value.attribute.stroke)
+      .attr('stroke-width', node.isPrimaryKey ? 2.5 : 1.5)
 
     const txt = gNode.append('text')
       .attr('x', 0).attr('y', 3)
       .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
       .attr('font-size', 11).attr('font-family', 'JetBrains Mono,monospace')
-      .attr('fill', node.isPrimaryKey ? '#166534' : '#4b5563')
+      .attr('fill', node.isPrimaryKey ? colors.value.attribute.pkText : colors.value.attribute.text)
     if (node.isPrimaryKey) {
       txt.append('tspan').attr('text-decoration', 'underline').text(node.name)
     } else {
@@ -344,13 +389,13 @@ function renderERDiagram(data) {
 
     gNode.append('polygon')
       .attr('points', `0,${-rh/2} ${rw/2},0 0,${rh/2} ${-rw/2},0`)
-      .attr('fill', '#fef3c7').attr('stroke', '#d97706').attr('stroke-width', 2)
+      .attr('fill', colors.value.relationship.fill).attr('stroke', colors.value.relationship.stroke).attr('stroke-width', 2)
 
     gNode.append('text')
       .attr('x', 0).attr('y', 3)
       .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
       .attr('font-size', 12).attr('font-weight', '500')
-      .attr('font-family', 'Inter,sans-serif').attr('fill', '#78350f')
+      .attr('font-family', 'Inter,sans-serif').attr('fill', colors.value.relationship.text)
       .text(node.name)
   })
 
@@ -521,6 +566,55 @@ function downloadPNG() {
             </div>
           </div>
           <p v-else class="font-code-sm text-code-sm text-outline-variant text-sm">暂无历史</p>
+        </div>
+        <!-- 样式设置 -->
+        <div class="p-4 border-t border-outline-variant bg-surface-container">
+          <div class="flex items-center justify-between mb-3 cursor-pointer" @click="showSettings = !showSettings">
+            <h3 class="font-label-mono text-label-mono text-on-surface-variant flex items-center gap-2">
+              <span class="material-symbols-outlined text-secondary">palette</span>
+              样式设置
+            </h3>
+            <span class="material-symbols-outlined text-sm text-secondary" :style="{ transform: showSettings ? 'rotate(180deg)' : '' }">expand_more</span>
+          </div>
+          <div v-if="showSettings" class="space-y-3">
+            <!-- 预设 -->
+            <div>
+              <p class="text-xs text-on-surface-variant mb-2">预设样式</p>
+              <div class="grid grid-cols-2 gap-1.5">
+                <button v-for="p in presets" :key="p.name" @click="applyPreset(p)" class="px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors" :style="{ borderColor: p.entity.stroke, backgroundColor: p.entity.fill + '40', color: p.entity.text }">{{ p.name }}</button>
+              </div>
+            </div>
+            <!-- 自定义颜色 -->
+            <div>
+              <p class="text-xs text-on-surface-variant mb-2">实体颜色</p>
+              <div class="flex gap-2">
+                <div class="flex-1"><label class="text-[10px] text-outline-variant">背景</label><input type="color" v-model="colors.entity.fill" class="w-full h-6 rounded cursor-pointer"></div>
+                <div class="flex-1"><label class="text-[10px] text-outline-variant">边框</label><input type="color" v-model="colors.entity.stroke" class="w-full h-6 rounded cursor-pointer"></div>
+                <div class="flex-1"><label class="text-[10px] text-outline-variant">文字</label><input type="color" v-model="colors.entity.text" class="w-full h-6 rounded cursor-pointer"></div>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs text-on-surface-variant mb-2">属性颜色</p>
+              <div class="flex gap-2">
+                <div class="flex-1"><label class="text-[10px] text-outline-variant">背景</label><input type="color" v-model="colors.attribute.fill" class="w-full h-6 rounded cursor-pointer"></div>
+                <div class="flex-1"><label class="text-[10px] text-outline-variant">边框</label><input type="color" v-model="colors.attribute.stroke" class="w-full h-6 rounded cursor-pointer"></div>
+                <div class="flex-1"><label class="text-[10px] text-outline-variant">文字</label><input type="color" v-model="colors.attribute.text" class="w-full h-6 rounded cursor-pointer"></div>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs text-on-surface-variant mb-2">关系颜色</p>
+              <div class="flex gap-2">
+                <div class="flex-1"><label class="text-[10px] text-outline-variant">背景</label><input type="color" v-model="colors.relationship.fill" class="w-full h-6 rounded cursor-pointer"></div>
+                <div class="flex-1"><label class="text-[10px] text-outline-variant">边框</label><input type="color" v-model="colors.relationship.stroke" class="w-full h-6 rounded cursor-pointer"></div>
+                <div class="flex-1"><label class="text-[10px] text-outline-variant">文字</label><input type="color" v-model="colors.relationship.text" class="w-full h-6 rounded cursor-pointer"></div>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs text-on-surface-variant mb-2">连线颜色</p>
+              <input type="color" v-model="colors.line" class="w-full h-6 rounded cursor-pointer">
+            </div>
+            <button @click="colors = JSON.parse(JSON.stringify(defaultColors)); renderERDiagram(currentDiagramData)" class="w-full py-1.5 text-xs border border-outline-variant rounded-lg text-secondary hover:text-primary hover:border-primary transition-colors">恢复默认</button>
+          </div>
         </div>
         <div class="p-4 border-t border-outline-variant bg-surface-container">
           <h3 class="font-label-mono text-label-mono text-on-surface-variant mb-3">图例</h3>
