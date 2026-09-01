@@ -84,7 +84,31 @@ function renderERDiagram(data) {
   })
   const links = attrLinks.concat(relLinks)
 
-  const svgW = 4000, svgH = 3000
+  // 力导向布局
+  const simW = 4000, simH = 3000
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(200))
+    .force('charge', d3.forceManyBody().strength(-600))
+    .force('center', d3.forceCenter(simW / 2, simH / 2))
+    .force('collision', d3.forceCollide().radius(80))
+  sim.stop()
+  for (let i = 0; i < 300; i++) sim.tick()
+
+  // 根据节点实际位置自动计算画布大小
+  const padding = 200
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  nodes.forEach(n => {
+    minX = Math.min(minX, n.x); minY = Math.min(minY, n.y)
+    maxX = Math.max(maxX, n.x); maxY = Math.max(maxY, n.y)
+  })
+  const svgW = Math.max(maxX - minX + padding * 2, 600)
+  const svgH = Math.max(maxY - minY + padding * 2, 400)
+  const offsetX = padding - minX
+  const offsetY = padding - minY
+
+  // 平移所有节点到正坐标
+  nodes.forEach(n => { n.x += offsetX; n.y += offsetY })
+
   const container = document.getElementById('er-canvas')
   if (!container) return
   container.innerHTML = ''
@@ -108,15 +132,6 @@ function renderERDiagram(data) {
     .attr('markerHeight', 5)
     .attr('orient', 'auto')
     .append('path').attr('d', 'M0 0L10 3.5L0 7Z').attr('fill', '#94a3b8')
-
-  // 力导向布局
-  const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(200))
-    .force('charge', d3.forceManyBody().strength(-600))
-    .force('center', d3.forceCenter(svgW / 2, svgH / 2))
-    .force('collision', d3.forceCollide().radius(80))
-  sim.stop()
-  for (let i = 0; i < 300; i++) sim.tick()
 
   const g = svg.append('g')
 
