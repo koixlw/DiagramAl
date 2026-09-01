@@ -573,7 +573,10 @@ function downloadPNG() {
               </div>
             </div>
             <p v-else class="font-code-sm text-code-sm text-outline-variant text-sm mb-4">暂无历史</p>
-            <div class="flex items-center justify-between mb-3">
+            <h3 class="font-label-mono text-label-mono font-bold text-on-surface mb-3 flex items-center gap-2">
+              <span class="material-symbols-outlined text-secondary">category</span>
+              标准形状图例
+            </h3>
             <div class="flex flex-col gap-3 font-diagram-text text-diagram-text text-on-surface-variant">
               <div class="flex items-center gap-3"><div class="w-10 h-6 border-2 border-outline rounded-full flex items-center justify-center bg-surface-container-lowest"></div><span>开始/结束 (Start/End)</span></div>
               <div class="flex items-center gap-3"><div class="w-10 h-6 border-2 border-outline flex items-center justify-center bg-surface-container-lowest"></div><span>处理 (Process)</span></div>
