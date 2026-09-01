@@ -333,23 +333,21 @@ function renderERDiagram(data) {
     })
 
   function updateLines() {
-    g.selectAll('line').attr('x1', (d, i) => {
-      const src = nodes.find(n => n.id === (links[i].source.id || links[i].source))
-      return src ? src.x : 0
-    }).attr('y1', (d, i) => {
-      const src = nodes.find(n => n.id === (links[i].source.id || links[i].source))
-      return src ? src.y : 0
-    }).attr('x2', (d, i) => {
-      const tgt = nodes.find(n => n.id === (links[i].target.id || links[i].target))
-      return tgt ? tgt.x : 0
-    }).attr('y2', (d, i) => {
-      const tgt = nodes.find(n => n.id === (links[i].target.id || links[i].target))
-      return tgt ? tgt.y : 0
+    const lineElements = g.selectAll('line').nodes()
+    lineElements.forEach((lineEl, i) => {
+      const link = links[i]
+      if (!link) return
+      const src = nodes.find(n => n.id === (link.source.id || link.source))
+      const tgt = nodes.find(n => n.id === (link.target.id || link.target))
+      if (src && tgt) {
+        d3.select(lineEl).attr('x1', src.x).attr('y1', src.y).attr('x2', tgt.x).attr('y2', tgt.y)
+      }
     })
   }
 
-  // 所有节点添加拖拽
-  g.selectAll('.node-group').call(drag)
+  // 所有节点组添加拖拽
+  const nodeGroups = g.selectAll('g.node-group')
+  nodeGroups.call(drag)
 
   svgContent.value = svg.node().outerHTML
 }
