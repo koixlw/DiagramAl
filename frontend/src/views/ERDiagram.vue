@@ -271,7 +271,7 @@ function renderERDiagram(data) {
   // 实体矩形
   nodes.filter(n => n.type === 'entity').forEach(node => {
     const ew = 120, eh = 44
-    const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
+    const gNode = g.append('g').attr('class', 'node-group').attr('transform', `translate(${node.x}, ${node.y})`)
 
     gNode.append('rect')
       .attr('x', -ew/2).attr('y', -eh/2).attr('width', ew).attr('height', eh).attr('rx', 4)
@@ -288,7 +288,7 @@ function renderERDiagram(data) {
   // 属性椭圆
   nodes.filter(n => n.type === 'attribute').forEach(node => {
     const aw = Math.max(50, node.name.length * 14 + 20), ah = 28
-    const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
+    const gNode = g.append('g').attr('class', 'node-group').attr('transform', `translate(${node.x}, ${node.y})`)
 
     gNode.append('ellipse')
       .attr('cx', 0).attr('cy', 0).attr('rx', aw/2).attr('ry', ah/2)
@@ -309,7 +309,7 @@ function renderERDiagram(data) {
   // 关系菱形
   nodes.filter(n => n.type === 'relationship').forEach(node => {
     const rw = 100, rh = 56
-    const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
+    const gNode = g.append('g').attr('class', 'node-group').attr('transform', `translate(${node.x}, ${node.y})`)
 
     gNode.append('polygon')
       .attr('points', `0,${-rh/2} ${rw/2},0 0,${rh/2} ${-rw/2},0`)
@@ -322,6 +322,34 @@ function renderERDiagram(data) {
       .attr('font-family', 'Inter,sans-serif').attr('fill', '#78350f')
       .text(node.name)
   })
+
+  // 拖拽行为
+  const drag = d3.drag()
+    .on('start', function(event, d) { d3.select(this).raise() })
+    .on('drag', function(event, d) {
+      d.x = event.x; d.y = event.y
+      d3.select(this).attr('transform', `translate(${d.x}, ${d.y})`)
+      updateLines()
+    })
+
+  function updateLines() {
+    g.selectAll('line').attr('x1', (d, i) => {
+      const src = nodes.find(n => n.id === (links[i].source.id || links[i].source))
+      return src ? src.x : 0
+    }).attr('y1', (d, i) => {
+      const src = nodes.find(n => n.id === (links[i].source.id || links[i].source))
+      return src ? src.y : 0
+    }).attr('x2', (d, i) => {
+      const tgt = nodes.find(n => n.id === (links[i].target.id || links[i].target))
+      return tgt ? tgt.x : 0
+    }).attr('y2', (d, i) => {
+      const tgt = nodes.find(n => n.id === (links[i].target.id || links[i].target))
+      return tgt ? tgt.y : 0
+    })
+  }
+
+  // 所有节点添加拖拽
+  g.selectAll('.node-group').call(drag)
 
   svgContent.value = svg.node().outerHTML
 }
