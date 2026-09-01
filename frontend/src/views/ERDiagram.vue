@@ -99,32 +99,55 @@ function renderERDiagram(data) {
     if (entityAdj[tid]) entityAdj[tid].add(fid)
   })
 
-  // BFS 排序：相连实体放相邻角度
+  // BFS 分层
+  const layers = []
+  const placed = new Set()
+  const visited = new Set()
   const centerEntity = entityNodes.reduce((max, e) =>
     (entityAdj[e.id]?.size || 0) > (entityAdj[max.id]?.size || 0) ? e : max, entityNodes[0])
-  const ordered = [centerEntity]
-  const placed = new Set([centerEntity.id])
-  const queue = [...(entityAdj[centerEntity.id] || [])]
-  const visited = new Set([centerEntity.id])
-  while (queue.length > 0) {
-    const eid = queue.shift()
-    if (placed.has(eid)) continue
-    const node = entityNodes.find(e => e.id === eid)
-    if (node) { ordered.push(node); placed.add(eid) }
-    visited.add(eid)
-    for (const adj of (entityAdj[eid] || [])) {
-      if (!visited.has(adj)) { queue.push(adj); visited.add(adj) }
-    }
-  }
-  entityNodes.forEach(e => { if (!placed.has(e.id)) ordered.push(e) })
+  let queue = [centerEntity.id]
+  visited.add(centerEntity.id)
 
-  // 实体放圆环上
-  const radius = 500
-  const step = (2 * Math.PI) / Math.max(ordered.length, 1)
-  ordered.forEach((e, i) => {
-    e.x = Math.cos(i * step - Math.PI / 2) * radius
-    e.y = Math.sin(i * step - Math.PI / 2) * radius
-  })
+  while (queue.length > 0) {
+    layers.push(queue)
+    const nextQueue = []
+    for (const eid of queue) {
+      for (const adj of (entityAdj[eid] || [])) {
+        if (!visited.has(adj)) {
+          nextQueue.push(adj)
+          visited.add(adj)
+        }
+      }
+    }
+    queue = nextQueue
+  }
+  entityNodes.forEach(e => { if (!visited.has(e.id)) { layers.push([e.id]); visited.add(e.id) } })
+
+  if (entityNodes.length >= 6) {
+    // 6+ 实体：分层布局
+    const layerGap = 400
+    const entityGap = 300
+    layers.forEach((layer, li) => {
+      const count = layer.length
+      const totalW = (count - 1) * entityGap
+      layer.forEach((eid, ei) => {
+        const node = entityNodes.find(e => e.id === eid)
+        if (node) {
+          node.x = -totalW / 2 + ei * entityGap
+          node.y = li * layerGap
+        }
+      })
+    })
+  } else {
+    // ≤5 实体：圆形布局
+    const ordered = layers.flat().map(id => entityNodes.find(e => e.id === id)).filter(Boolean)
+    const radius = 500
+    const step = (2 * Math.PI) / Math.max(ordered.length, 1)
+    ordered.forEach((e, i) => {
+      e.x = Math.cos(i * step - Math.PI / 2) * radius
+      e.y = Math.sin(i * step - Math.PI / 2) * radius
+    })
+  }
 
   // 关系节点放两实体中点
   relNodes.forEach(r => {
