@@ -21,7 +21,7 @@ const generatedCode = ref('')
 
 const placeholder = computed(() => {
   return inputMode.value === 'code'
-    ? 'def check_prime(n):\n    if n <= 1: return False\n    for i in range(2, int(n**0.5)+1):\n        if n % i == 0: return False\n    return True'
+    ? '粘贴任意编程语言代码，例如 Python/Java/C++/JavaScript：\n\ndef check_prime(n):\n    if n <= 1: return False\n    for i in range(2, int(n**0.5)+1):\n        if n % i == 0: return False\n    return True'
     : '在此输入逻辑，例如：\n如果支付成功 -> 发送邮件\n如果支付失败 -> 提示重试'
 })
 
