@@ -18,6 +18,20 @@ let currentZoom = 1
 let currentFlowData = null
 const showCode = ref(false)
 const generatedCode = ref('')
+const fcHistory = ref([])
+
+// 加载历史
+try {
+  const saved = localStorage.getItem('fc-history')
+  if (saved) fcHistory.value = JSON.parse(saved)
+} catch(e) {}
+
+function saveFcHistory(input, mode, data) {
+  const item = { id: Date.now(), input: input.substring(0, 200), mode, time: new Date().toLocaleString('zh-CN'), data }
+  fcHistory.value.unshift(item)
+  if (fcHistory.value.length > 20) fcHistory.value.pop()
+  localStorage.setItem('fc-history', JSON.stringify(fcHistory.value))
+}
 
 const placeholder = computed(() => {
   return inputMode.value === 'code'
@@ -422,6 +436,12 @@ async function renderFlowchart(data) {
 
   loading.value = false
   hasDiagram.value = true
+  saveFcHistory(inputText.value, inputMode.value, data)
+}
+
+function generateFromHistory(data) {
+  renderFlowchart(data)
+  currentFlowData = data
 }
 
 function makeShape(type, w, h, cx, cy, c) {
@@ -538,11 +558,22 @@ function downloadPNG() {
             <span v-else class="material-symbols-outlined">auto_awesome</span>
             {{ loading ? '生成中...' : '生成图表' }}
           </button>
-          <div class="mt-6 border-t border-outline-variant pt-4">
-            <h3 class="font-label-mono text-label-mono font-bold text-on-surface mb-3 flex items-center gap-2">
-              <span class="material-symbols-outlined text-secondary">category</span>
-              标准形状图例
-            </h3>
+          <div class="border-t border-outline-variant pt-4">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-label-mono text-label-mono text-on-surface-variant">对话历史</h3>
+              <button v-if="fcHistory.length" @click="fcHistory = []; localStorage.removeItem('fc-history')" class="text-xs text-secondary hover:text-primary">清空</button>
+            </div>
+            <div v-if="fcHistory.length" class="space-y-2 max-h-36 overflow-y-auto mb-4">
+              <div v-for="item in fcHistory" :key="item.id" @click="inputText = item.input; inputMode = item.mode; hasDiagram = true; svgContent.value = ''; generateFromHistory(item.data)" class="p-2 bg-surface-container-lowest rounded-lg cursor-pointer hover:bg-surface-container-low transition-colors">
+                <p class="font-code-sm text-code-sm text-on-surface truncate">{{ item.input }}</p>
+                <div class="flex items-center justify-between mt-1">
+                  <span class="text-[10px] text-secondary">{{ item.mode === 'code' ? '代码' : '自然语言' }}</span>
+                  <span class="text-[10px] text-outline-variant">{{ item.time }}</span>
+                </div>
+              </div>
+            </div>
+            <p v-else class="font-code-sm text-code-sm text-outline-variant text-sm mb-4">暂无历史</p>
+            <div class="flex items-center justify-between mb-3">
             <div class="flex flex-col gap-3 font-diagram-text text-diagram-text text-on-surface-variant">
               <div class="flex items-center gap-3"><div class="w-10 h-6 border-2 border-outline rounded-full flex items-center justify-center bg-surface-container-lowest"></div><span>开始/结束 (Start/End)</span></div>
               <div class="flex items-center gap-3"><div class="w-10 h-6 border-2 border-outline flex items-center justify-center bg-surface-container-lowest"></div><span>处理 (Process)</span></div>
