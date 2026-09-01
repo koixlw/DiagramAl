@@ -84,7 +84,7 @@ function renderERDiagram(data) {
   })
   const links = attrLinks.concat(relLinks)
 
-  const svgW = 2000, svgH = 1500
+  const svgW = 4000, svgH = 3000
   const container = document.getElementById('er-canvas')
   if (!container) return
   container.innerHTML = ''
