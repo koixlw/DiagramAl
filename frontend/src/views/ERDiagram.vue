@@ -125,8 +125,8 @@ function renderERDiagram(data) {
 
   if (entityNodes.length >= 6) {
     // 6+ 实体：分层布局
-    const layerGap = 400
-    const entityGap = 300
+    const layerGap = 600
+    const entityGap = 450
     layers.forEach((layer, li) => {
       const count = layer.length
       const totalW = (count - 1) * entityGap
