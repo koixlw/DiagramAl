@@ -323,14 +323,40 @@ function renderERDiagram(data) {
       .text(node.name)
   })
 
-  // 拖拽行为
-  const drag = d3.drag()
-    .on('start', function(event, d) { d3.select(this).raise() })
-    .on('drag', function(event, d) {
-      d.x = event.x; d.y = event.y
-      d3.select(this).attr('transform', `translate(${d.x}, ${d.y})`)
-      updateLines()
+  // 拖拽行为（原生鼠标事件，更可靠）
+  let draggingNode = null
+  let dragOffsetX = 0, dragOffsetY = 0
+
+  g.selectAll('g.node-group')
+    .attr('style', 'cursor: grab; pointer-events: all')
+    .on('mousedown', function(event) {
+      event.stopPropagation()
+      const gEl = d3.select(this)
+      draggingNode = gEl.datum()
+      if (!draggingNode) return
+      gEl.attr('style', 'cursor: grabbing')
+      d3.select(this).raise()
     })
+
+  svg.on('mousemove', function(event) {
+    if (!draggingNode) return
+    const [mx, my] = d3.pointer(event, g.node())
+    draggingNode.x = mx
+    draggingNode.y = my
+    g.selectAll('g.node-group').filter(function() {
+      return d3.select(this).datum() === draggingNode
+    }).attr('transform', `translate(${mx}, ${my})`)
+    updateLines()
+  })
+
+  svg.on('mouseup', function() {
+    if (draggingNode) {
+      g.selectAll('g.node-group').filter(function() {
+        return d3.select(this).datum() === draggingNode
+      }).attr('style', 'cursor: grab')
+      draggingNode = null
+    }
+  })
 
   function updateLines() {
     const lineElements = g.selectAll('line').nodes()
@@ -344,10 +370,6 @@ function renderERDiagram(data) {
       }
     })
   }
-
-  // 所有节点组添加拖拽
-  const nodeGroups = g.selectAll('g.node-group')
-  nodeGroups.call(drag)
 
   svgContent.value = svg.node().outerHTML
 }
