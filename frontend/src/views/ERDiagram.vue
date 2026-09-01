@@ -84,15 +84,85 @@ function renderERDiagram(data) {
   })
   const links = attrLinks.concat(relLinks)
 
-  // 力导向布局
+  // ========== 智能初始布局 ==========
+  const entityNodes = nodes.filter(n => n.type === 'entity')
+  const relNodes = nodes.filter(n => n.type === 'relationship')
+  const attrNodes = nodes.filter(n => n.type === 'attribute')
+
+  // 构建实体邻接关系
+  const entityAdj = {}
+  entityNodes.forEach(e => { entityAdj[e.id] = new Set() })
+  relationships.forEach(r => {
+    const fid = `e-${r.from_entity || r.from}`
+    const tid = `e-${r.to_entity || r.to}`
+    if (entityAdj[fid]) entityAdj[fid].add(tid)
+    if (entityAdj[tid]) entityAdj[tid].add(fid)
+  })
+
+  // BFS 排序：相连实体放相邻角度
+  const centerEntity = entityNodes.reduce((max, e) =>
+    (entityAdj[e.id]?.size || 0) > (entityAdj[max.id]?.size || 0) ? e : max, entityNodes[0])
+  const ordered = [centerEntity]
+  const placed = new Set([centerEntity.id])
+  const queue = [...(entityAdj[centerEntity.id] || [])]
+  const visited = new Set([centerEntity.id])
+  while (queue.length > 0) {
+    const eid = queue.shift()
+    if (placed.has(eid)) continue
+    const node = entityNodes.find(e => e.id === eid)
+    if (node) { ordered.push(node); placed.add(eid) }
+    visited.add(eid)
+    for (const adj of (entityAdj[eid] || [])) {
+      if (!visited.has(adj)) { queue.push(adj); visited.add(adj) }
+    }
+  }
+  entityNodes.forEach(e => { if (!placed.has(e.id)) ordered.push(e) })
+
+  // 实体放圆环上
+  const radius = 350
+  const step = (2 * Math.PI) / Math.max(ordered.length, 1)
+  ordered.forEach((e, i) => {
+    e.x = Math.cos(i * step - Math.PI / 2) * radius
+    e.y = Math.sin(i * step - Math.PI / 2) * radius
+  })
+
+  // 关系节点放两实体中点
+  relNodes.forEach(r => {
+    const fromE = entityNodes.find(e => e.id === r.fromEntity)
+    const toE = entityNodes.find(e => e.id === r.toEntity)
+    if (fromE && toE) {
+      r.x = (fromE.x + toE.x) / 2
+      r.y = (fromE.y + toE.y) / 2
+    }
+  })
+
+  // 属性节点绕父实体分布
+  const parentAttrMap = {}
+  attrNodes.forEach(a => {
+    const link = links.find(l => l.target === a.id || l.source === a.id)
+    if (!link) return
+    const pid = link.source === a.id ? link.target : link.source
+    if (!parentAttrMap[pid]) parentAttrMap[pid] = []
+    parentAttrMap[pid].push(a)
+  })
+  Object.entries(parentAttrMap).forEach(([pid, group]) => {
+    const parent = nodes.find(n => n.id === pid)
+    if (!parent) return
+    const aStep = (2 * Math.PI) / Math.max(group.length, 1)
+    group.forEach((a, i) => {
+      a.x = parent.x + Math.cos(i * aStep - Math.PI / 2) * 140
+      a.y = parent.y + Math.sin(i * aStep - Math.PI / 2) * 140
+    })
+  })
+
+  // 轻量力导向微调
   const simW = 4000, simH = 3000
   const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(200))
-    .force('charge', d3.forceManyBody().strength(-600))
-    .force('center', d3.forceCenter(simW / 2, simH / 2))
-    .force('collision', d3.forceCollide().radius(80))
+    .force('link', d3.forceLink(links).id(d => d.id).distance(150).strength(0.8))
+    .force('charge', d3.forceManyBody().strength(-400))
+    .force('collision', d3.forceCollide().radius(60))
   sim.stop()
-  for (let i = 0; i < 300; i++) sim.tick()
+  for (let i = 0; i < 200; i++) sim.tick()
 
   // 根据节点实际位置自动计算画布大小
   const padding = 200
