@@ -21,11 +21,11 @@ const showSettings = ref(false)
 
 // 颜色配置
 const defaultColors = {
-  entity: { fill: '#dbeafe', stroke: '#2563eb', text: '#1e40af' },
-  attribute: { fill: '#f0fdf4', stroke: '#4ade80', text: '#4b5563', pkStroke: '#16a34a', pkText: '#166534' },
-  relationship: { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' },
-  line: '#94a3b8',
-  cardinality: '#0891b2',
+  entity: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' },
+  attribute: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a', pkStroke: '#000000', pkText: '#000000' },
+  relationship: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' },
+  line: '#000000',
+  cardinality: '#000000',
 }
 const colors = ref(JSON.parse(JSON.stringify(defaultColors)))
 
@@ -45,11 +45,11 @@ watch(colors, () => {
 
 // 样式预设
 const presets = [
-  { name: '默认蓝', entity: { fill: '#dbeafe', stroke: '#2563eb', text: '#1e40af' }, attribute: { fill: '#f0fdf4', stroke: '#4ade80', text: '#4b5563', pkStroke: '#16a34a', pkText: '#166534' }, relationship: { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' }, line: '#94a3b8', cardinality: '#0891b2' },
+  { name: '默认黑白', entity: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' }, attribute: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a', pkStroke: '#000000', pkText: '#000000' }, relationship: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' }, line: '#000000', cardinality: '#000000' },
+  { name: '经典蓝', entity: { fill: '#dbeafe', stroke: '#2563eb', text: '#1e40af' }, attribute: { fill: '#f0fdf4', stroke: '#4ade80', text: '#4b5563', pkStroke: '#16a34a', pkText: '#166534' }, relationship: { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' }, line: '#94a3b8', cardinality: '#0891b2' },
   { name: '紫色调', entity: { fill: '#f3e8ff', stroke: '#a855f7', text: '#6b21a8' }, attribute: { fill: '#fdf2f8', stroke: '#f472b6', text: '#831843', pkStroke: '#ec4899', pkText: '#9d174d' }, relationship: { fill: '#fef9c3', stroke: '#eab308', text: '#854d0e' }, line: '#a78bfa', cardinality: '#7c3aed' },
   { name: '深色系', entity: { fill: '#1e3a5f', stroke: '#60a5fa', text: '#dbeafe' }, attribute: { fill: '#14532d', stroke: '#4ade80', text: '#bbf7d0', pkStroke: '#22c55e', pkText: '#86efac' }, relationship: { fill: '#451a03', stroke: '#f59e0b', text: '#fef3c7' }, line: '#64748b', cardinality: '#38bdf8' },
   { name: '复古绿', entity: { fill: '#ecfdf5', stroke: '#059669', text: '#064e3b' }, attribute: { fill: '#eff6ff', stroke: '#3b82f6', text: '#1e3a5f', pkStroke: '#2563eb', pkText: '#1e40af' }, relationship: { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' }, line: '#6b7280', cardinality: '#0891b2' },
-  { name: '暖色调', entity: { fill: '#fff7ed', stroke: '#ea580c', text: '#7c2d12' }, attribute: { fill: '#f0fdf4', stroke: '#22c55e', text: '#166534', pkStroke: '#16a34a', pkText: '#15803d' }, relationship: { fill: '#fef2f2', stroke: '#ef4444', text: '#7f1d1d' }, line: '#9ca3af', cardinality: '#dc2626' },
 ]
 
 function applyPreset(preset) {
