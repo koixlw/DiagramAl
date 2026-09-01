@@ -19,6 +19,46 @@ let currentFlowData = null
 const showCode = ref(false)
 const generatedCode = ref('')
 const fcHistory = ref([])
+const showSettings = ref(false)
+
+// 颜色配置
+const defaultColors = {
+  start_end: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' },
+  process: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' },
+  decision: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' },
+  input_output: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' },
+  connector: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' },
+  edge: { fill: '#000000', active: '#000000' },
+  edgeLabel: { fill: '#ffffff', stroke: '#cccccc', text: '#1a1a1a' },
+  edgeLabelActive: { fill: '#ffffff', stroke: '#000000', text: '#000000' },
+}
+const colors = ref(JSON.parse(JSON.stringify(defaultColors)))
+
+// 加载保存的颜色
+try {
+  const saved = localStorage.getItem('fc-colors-v2')
+  if (saved) colors.value = JSON.parse(saved)
+} catch(e) {}
+
+// 样式预设
+const presets = [
+  { name: '默认黑白', start_end: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' }, process: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' }, decision: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' }, input_output: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' }, connector: { fill: '#ffffff', stroke: '#000000', text: '#1a1a1a' }, edge: { fill: '#000000', active: '#000000' }, edgeLabel: { fill: '#ffffff', stroke: '#cccccc', text: '#1a1a1a' }, edgeLabelActive: { fill: '#ffffff', stroke: '#000000', text: '#000000' } },
+  { name: '经典彩', start_end: { fill: '#d1fae5', stroke: '#059669', text: '#064e3b' }, process: { fill: '#dbeafe', stroke: '#2563eb', text: '#1e3a5f' }, decision: { fill: '#fef3c7', stroke: '#d97706', text: '#78350f' }, input_output: { fill: '#ede9fe', stroke: '#7c3aed', text: '#4c1d95' }, connector: { fill: '#f3f4f6', stroke: '#6b7280', text: '#1f2937' }, edge: { fill: '#64748b', active: '#2563eb' }, edgeLabel: { fill: '#f8fafc', stroke: '#cbd5e1', text: '#475569' }, edgeLabelActive: { fill: '#eff6ff', stroke: '#93c5fd', text: '#2563eb' } },
+  { name: '紫色调', start_end: { fill: '#dcfce7', stroke: '#16a34a', text: '#14532d' }, process: { fill: '#f3e8ff', stroke: '#a855f7', text: '#6b21a8' }, decision: { fill: '#fef9c3', stroke: '#eab308', text: '#854d0e' }, input_output: { fill: '#fce7f3', stroke: '#ec4899', text: '#831843' }, connector: { fill: '#f1f5f9', stroke: '#94a3b8', text: '#334155' }, edge: { fill: '#a78bfa', active: '#7c3aed' }, edgeLabel: { fill: '#faf5ff', stroke: '#d8b4fe', text: '#6b21a8' }, edgeLabelActive: { fill: '#f5f3ff', stroke: '#c4b5fd', text: '#5b21b6' } },
+  { name: '深色系', start_end: { fill: '#1a1a2e', stroke: '#4ade80', text: '#bbf7d0' }, process: { fill: '#1e3a5f', stroke: '#60a5fa', text: '#dbeafe' }, decision: { fill: '#451a03', stroke: '#f59e0b', text: '#fef3c7' }, input_output: { fill: '#2d1b4e', stroke: '#c084fc', text: '#e9d5ff' }, connector: { fill: '#1e293b', stroke: '#64748b', text: '#cbd5e1' }, edge: { fill: '#64748b', active: '#60a5fa' }, edgeLabel: { fill: '#1e293b', stroke: '#475569', text: '#cbd5e1' }, edgeLabelActive: { fill: '#1e3a5f', stroke: '#60a5fa', text: '#dbeafe' } },
+]
+
+// 颜色变化时自动保存并重渲
+watch(colors, () => {
+  localStorage.setItem('fc-colors-v2', JSON.stringify(colors.value))
+  if (currentFlowData && hasDiagram.value) {
+    renderFlowchart(currentFlowData)
+  }
+}, { deep: true })
+
+function applyFcPreset(preset) {
+  colors.value = JSON.parse(JSON.stringify(preset))
+}
 
 // 加载历史
 try {
@@ -311,8 +351,8 @@ async function renderFlowchart(data) {
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}" viewBox="0 0 ${canvasW} ${canvasH}" style="font-family:Inter,sans-serif">`
   svg += '<defs>'
-  svg += `<marker id="ah" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="10" markerHeight="7" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#64748b"/></marker>`
-  svg += `<marker id="aha" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="10" markerHeight="7" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#2563eb"/></marker>`
+  svg += `<marker id="ah" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="10" markerHeight="7" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="${colors.value.edge.fill}"/></marker>`
+  svg += `<marker id="aha" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="10" markerHeight="7" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="${colors.value.edge.active}"/></marker>`
   svg += '</defs>'
   svg += '<g>'
 
@@ -322,7 +362,7 @@ async function renderFlowchart(data) {
     const toId = le.targets[0]
     const origEdge = edges.find(e => e.from === fromId && e.to === toId)
     const active = !!origEdge?.label
-    const sc = active ? '#2563eb' : '#64748b'
+    const sc = active ? colors.value.edge.active : colors.value.edge.fill
     const sw = active ? 2 : 1.5
     const mk = active ? 'url(#aha)' : 'url(#ah)'
 
@@ -343,9 +383,10 @@ async function renderFlowchart(data) {
     // 标签
     if (le.labels && le.labels.length > 0) {
       le.labels.forEach((lbl, li) => {
-        const fc = active ? '#2563eb' : '#475569'
-        const fb = active ? '#eff6ff' : '#f8fafc'
-        const sb = active ? '#93c5fd' : '#cbd5e1'
+        const lblColors = active ? colors.value.edgeLabelActive : colors.value.edgeLabel
+        const fc = lblColors.text
+        const fb = lblColors.fill
+        const sb = lblColors.stroke
         const tw = (lbl.text?.length || 1) * 12 + 18
         const lx = (lbl.x || 0) + offsetX
         const ly = (lbl.y || 0) + offsetY
@@ -363,16 +404,16 @@ async function renderFlowchart(data) {
     const origNode = nodes.find(n => n.id === ln.id)
     if (!origNode || ln.x == null || ln.y == null) return
     const nodeType = mapNodeType(origNode.type)
-    const c = CL[nodeType] || CL.process
+    const cc = colors.value[nodeType] || colors.value.process
     const nd = ND[nodeType] || ND.process
     const cx = ln.x + ln.width / 2
     const cy = ln.y + ln.height / 2
 
     svg += `<g data-node-id="${origNode.id}" transform="translate(${cx + offsetX}, ${cy + offsetY})" style="cursor:grab">`
-    svg += makeShape(nodeType, nd.w, nd.h, 0, 0, c)
+    svg += makeShape(nodeType, nd.w, nd.h, 0, 0, cc)
     const label = origNode.text || origNode.label || ln.labels?.[0]?.text || ''
     const ty = nodeType === 'decision' ? 2 : 3
-    svg += `<text x="0" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${c.text}" font-weight="${nodeType === 'decision' ? 600 : 400}">${label}</text>`
+    svg += `<text x="0" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${cc.text}" font-weight="${nodeType === 'decision' ? 600 : 400}">${label}</text>`
     svg += `</g>`
   })
 
@@ -577,6 +618,48 @@ function downloadPNG() {
               </div>
             </div>
             <p v-else class="font-code-sm text-code-sm text-outline-variant text-sm mb-4">暂无历史</p>
+            <!-- 样式设置 -->
+            <div class="border-t border-outline-variant pt-4 mb-4">
+              <div class="flex items-center justify-between mb-3 cursor-pointer" @click="showSettings = !showSettings">
+                <h3 class="font-label-mono text-label-mono text-on-surface-variant flex items-center gap-2">
+                  <span class="material-symbols-outlined text-secondary">palette</span>
+                  样式设置
+                </h3>
+                <span class="material-symbols-outlined text-sm text-secondary" :style="{ transform: showSettings ? 'rotate(180deg)' : '' }">expand_more</span>
+              </div>
+              <div v-if="showSettings" class="space-y-3">
+                <div>
+                  <p class="text-xs text-on-surface-variant mb-2">预设样式</p>
+                  <div class="grid grid-cols-2 gap-1.5">
+                    <button v-for="p in presets" :key="p.name" @click="applyFcPreset(p)" class="px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors" :style="{ borderColor: p.process.stroke, backgroundColor: p.process.fill + '40', color: p.process.text }">{{ p.name }}</button>
+                  </div>
+                </div>
+                <div>
+                  <p class="text-xs text-on-surface-variant mb-2">处理节点颜色</p>
+                  <div class="flex gap-2">
+                    <div class="flex-1"><label class="text-[10px] text-outline-variant">背景</label><input type="color" v-model="colors.process.fill" class="w-full h-6 rounded cursor-pointer"></div>
+                    <div class="flex-1"><label class="text-[10px] text-outline-variant">边框</label><input type="color" v-model="colors.process.stroke" class="w-full h-6 rounded cursor-pointer"></div>
+                    <div class="flex-1"><label class="text-[10px] text-outline-variant">文字</label><input type="color" v-model="colors.process.text" class="w-full h-6 rounded cursor-pointer"></div>
+                  </div>
+                </div>
+                <div>
+                  <p class="text-xs text-on-surface-variant mb-2">判断节点颜色</p>
+                  <div class="flex gap-2">
+                    <div class="flex-1"><label class="text-[10px] text-outline-variant">背景</label><input type="color" v-model="colors.decision.fill" class="w-full h-6 rounded cursor-pointer"></div>
+                    <div class="flex-1"><label class="text-[10px] text-outline-variant">边框</label><input type="color" v-model="colors.decision.stroke" class="w-full h-6 rounded cursor-pointer"></div>
+                    <div class="flex-1"><label class="text-[10px] text-outline-variant">文字</label><input type="color" v-model="colors.decision.text" class="w-full h-6 rounded cursor-pointer"></div>
+                  </div>
+                </div>
+                <div>
+                  <p class="text-xs text-on-surface-variant mb-2">连线颜色</p>
+                  <div class="flex gap-2">
+                    <div class="flex-1"><label class="text-[10px] text-outline-variant">普通</label><input type="color" v-model="colors.edge.fill" class="w-full h-6 rounded cursor-pointer"></div>
+                    <div class="flex-1"><label class="text-[10px] text-outline-variant">激活</label><input type="color" v-model="colors.edge.active" class="w-full h-6 rounded cursor-pointer"></div>
+                  </div>
+                </div>
+                <button @click="colors = JSON.parse(JSON.stringify(defaultColors)); if(currentFlowData && hasDiagram.value) renderFlowchart(currentFlowData)" class="w-full py-1.5 text-xs border border-outline-variant rounded-lg text-secondary hover:text-primary hover:border-primary transition-colors">恢复默认</button>
+              </div>
+            </div>
             <h3 class="font-label-mono text-label-mono font-bold text-on-surface mb-3 flex items-center gap-2">
               <span class="material-symbols-outlined text-secondary">category</span>
               标准形状图例
