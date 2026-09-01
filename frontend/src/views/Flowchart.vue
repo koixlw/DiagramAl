@@ -8,7 +8,7 @@ const router = useRouter()
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
 const inputText = ref('用户发起请求\n验证用户身份\n如果 验证成功 -> 查询数据库\n    如果 数据存在 -> 返回结果 -> 结束\n    如果 数据不存在 -> 提示错误 -> 结束\n如果 验证失败 -> 拒绝访问 -> 结束')
-const inputMode = ref('text') // 'text' | 'code'
+const inputMode = ref('text') // 'text' | 'code' | 'chat'
 const loading = ref(false)
 const error = ref('')
 const hasDiagram = ref(false)
@@ -20,6 +20,10 @@ const showCode = ref(false)
 const generatedCode = ref('')
 const fcHistory = ref([])
 const showSettings = ref(false)
+const chatMode = ref(false)
+const chatMessages = ref([])
+const chatInput = ref('')
+const chatLoading = ref(false)
 
 // 颜色配置
 const defaultColors = {
@@ -488,6 +492,48 @@ async function renderFlowchart(data) {
   saveFcHistory(inputText.value, inputMode.value, data)
 }
 
+async function sendChat() {
+  if (!chatInput.value.trim()) return
+  const userMsg = chatInput.value.trim()
+  chatMessages.value.push({ role: 'user', content: userMsg })
+  chatInput.value = ''
+  chatLoading.value = true
+
+  try {
+    // 构建对话上下文
+    const contextMsgs = chatMessages.value
+      .filter(m => m.role === 'user' || (m.role === 'ai' && m.data))
+      .map(m => {
+        if (m.role === 'user') return m.content
+        return `AI 生成的流程图：${m.content}`
+      })
+      .join('\n\n')
+
+    const prompt = chatMessages.value.length === 1
+      ? `请根据以下描述生成流程图：\n\n${userMsg}`
+      : `基于之前的流程图，用户提出修改：\n\n${userMsg}\n\n请生成修改后的完整流程图。`
+
+    const res = await fetch(`${API_BASE}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'flowchart', description: prompt }),
+    })
+    if (!res.ok) throw new Error(`请求失败 (${res.status})`)
+    const resData = await res.json()
+    const data = resData.data || resData
+    await renderFlowchart(data)
+    currentFlowData = data
+    hasDiagram.value = true
+    saveFcHistory(userMsg, 'chat', data)
+    chatMessages.value.push({ role: 'ai', content: '已生成/更新流程图', data })
+  } catch (e) {
+    chatMessages.value.push({ role: 'ai', content: `错误：${e.message}` })
+    error.value = e.message
+  } finally {
+    chatLoading.value = false
+  }
+}
+
 async function restoreFcHistory(item) {
   inputText.value = item.input
   inputMode.value = item.mode
@@ -601,10 +647,29 @@ function downloadPNG() {
           <div>
             <h2 class="font-label-mono text-label-mono font-bold text-on-surface mb-2">输入方式</h2>
             <div class="flex gap-1 p-1 bg-surface-container-low rounded-lg mb-3">
-              <button @click="inputMode = 'text'" :class="inputMode === 'text' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">自然语言</button>
-              <button @click="inputMode = 'code'" :class="inputMode === 'code' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">代码</button>
+              <button @click="inputMode = 'text'; chatMode = false" :class="inputMode === 'text' && !chatMode ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">自然语言</button>
+              <button @click="inputMode = 'code'; chatMode = false" :class="inputMode === 'code' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">代码</button>
+              <button @click="chatMode = true" :class="chatMode ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">对话</button>
             </div>
-            <textarea v-model="inputText" class="w-full h-40 p-3 bg-surface-container-lowest border border-outline-variant rounded focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-code-sm text-code-sm resize-none text-on-surface" :placeholder="placeholder"></textarea>
+
+            <!-- 对话模式 -->
+            <div v-if="chatMode" class="flex flex-col h-80">
+              <div class="flex-1 overflow-y-auto space-y-2 mb-3 bg-surface-container-lowest rounded-lg p-3">
+                <div v-for="(msg, i) in chatMessages" :key="i" :class="msg.role === 'user' ? 'text-right' : 'text-left'">
+                  <div :class="msg.role === 'user' ? 'bg-primary-container text-on-primary inline-block rounded-lg px-3 py-2 text-sm' : 'bg-surface-container-low text-on-surface inline-block rounded-lg px-3 py-2 text-sm'">{{ msg.content }}</div>
+                </div>
+                <div v-if="chatLoading" class="text-left">
+                  <span class="bg-surface-container-low inline-block rounded-lg px-3 py-2 text-sm text-outline-variant">AI 思考中...</span>
+                </div>
+              </div>
+              <div class="flex gap-2">
+                <input v-model="chatInput" @keyup.enter="sendChat" :disabled="chatLoading" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-code-sm text-code-sm focus:ring-1 focus:ring-primary focus:outline-none text-on-surface" placeholder="描述流程图或提出修改...">
+                <button @click="sendChat" :disabled="chatLoading || !chatInput.trim()" class="bg-primary-container text-on-primary rounded-lg px-4 py-2 font-label-mono text-label-mono disabled:opacity-50"><span class="material-symbols-outlined text-sm">send</span></button>
+              </div>
+            </div>
+
+            <!-- 普通输入模式 -->
+            <textarea v-else v-model="inputText" class="w-full h-40 p-3 bg-surface-container-lowest border border-outline-variant rounded focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-code-sm text-code-sm resize-none text-on-surface" :placeholder="placeholder"></textarea>
           </div>
           <button @click="generate" :disabled="loading || !inputText.trim()" class="w-full py-2 bg-primary-container text-on-primary rounded hover:bg-primary transition-colors font-label-mono text-label-mono font-bold flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
             <span v-if="loading" class="material-symbols-outlined animate-spin">progress_activity</span>
