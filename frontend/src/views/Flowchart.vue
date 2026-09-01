@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import ELK from 'elkjs/lib/elk.bundled.js'
 
@@ -27,6 +27,14 @@ const placeholder = computed(() => {
 
 // 切换模式时清空输入
 watch(inputMode, () => { inputText.value = '' })
+
+// keep-alive 恢复时重新渲染
+onActivated(() => {
+  if (svgContent.value && hasDiagram.value) {
+    const el = document.getElementById('flowchart-canvas')
+    if (el) el.innerHTML = svgContent.value
+  }
+})
 
 function parseToCode(data) {
   const nodes = (data?.nodes || [])
