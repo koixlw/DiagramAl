@@ -7,7 +7,7 @@ const router = useRouter()
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
 const inputText = ref('')
-const inputMode = ref('text') // 'text' | 'sql'
+const inputMode = ref('text') // 'text' | 'sql' | 'chat'
 const loading = ref(false)
 const error = ref('')
 const hasDiagram = ref(false)
@@ -18,6 +18,10 @@ let currentDiagramData = null
 const history = ref([])
 const showHistory = ref(false)
 const showSettings = ref(false)
+const chatMode = ref(false)
+const chatMessages = ref([])
+const chatInput = ref('')
+const chatLoading = ref(false)
 
 // 颜色配置
 const defaultColors = {
@@ -116,6 +120,39 @@ async function generate() {
     error.value = e.message
   } finally {
     loading.value = false
+  }
+}
+
+async function sendChat() {
+  if (!chatInput.value.trim()) return
+  const userMsg = chatInput.value.trim()
+  chatMessages.value.push({ role: 'user', content: userMsg })
+  chatInput.value = ''
+  chatLoading.value = true
+
+  try {
+    const prompt = chatMessages.value.length === 1
+      ? `请根据以下描述生成 E-R 图：\n\n${userMsg}`
+      : `基于之前的 E-R 图，用户提出修改：\n\n${userMsg}\n\n请生成修改后的完整 E-R 图。`
+
+    const res = await fetch(`${API_BASE}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'er', description: prompt }),
+    })
+    if (!res.ok) throw new Error(`请求失败 (${res.status})`)
+    const resData = await res.json()
+    const diagramData = resData.data || resData
+    renderERDiagram(diagramData)
+    currentDiagramData = diagramData
+    hasDiagram.value = true
+    saveHistory(userMsg, 'chat', diagramData)
+    chatMessages.value.push({ role: 'ai', content: '已生成/更新 E-R 图', data: diagramData })
+  } catch (e) {
+    chatMessages.value.push({ role: 'ai', content: `错误：${e.message}` })
+    error.value = e.message
+  } finally {
+    chatLoading.value = false
   }
 }
 
@@ -542,12 +579,31 @@ function downloadPNG() {
       <aside class="w-sidebar_width bg-surface-container-lowest border-r border-outline-variant flex flex-col h-full shrink-0 z-10">
         <div class="p-4 border-b border-outline-variant">
           <h2 class="font-label-mono text-label-mono text-on-surface-variant mb-2">输入方式</h2>
-          <div class="flex gap-1 p-1 bg-surface-container-low rounded-lg">
-            <button @click="inputMode = 'text'" :class="inputMode === 'text' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">自然语言</button>
-            <button @click="inputMode = 'sql'" :class="inputMode === 'sql' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">SQL 语句</button>
+          <div class="flex gap-1 p-1 bg-surface-container-low rounded-lg mb-3">
+            <button @click="inputMode = 'text'; chatMode = false" :class="inputMode === 'text' && !chatMode ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">自然语言</button>
+            <button @click="inputMode = 'sql'; chatMode = false" :class="inputMode === 'sql' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">SQL</button>
+            <button @click="chatMode = true" :class="chatMode ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">对话</button>
           </div>
         </div>
         <div class="flex-1 overflow-y-auto p-4">
+          <!-- 对话模式 -->
+          <div v-if="chatMode" class="flex flex-col" style="height: calc(100vh - 320px)">
+            <div class="flex-1 overflow-y-auto space-y-2 mb-3 bg-surface-container-lowest rounded-lg p-3">
+              <div v-for="(msg, i) in chatMessages" :key="i" :class="msg.role === 'user' ? 'text-right' : 'text-left'">
+                <div :class="msg.role === 'user' ? 'bg-primary-container text-on-primary inline-block rounded-lg px-3 py-2 text-sm' : 'bg-surface-container-low text-on-surface inline-block rounded-lg px-3 py-2 text-sm'">{{ msg.content }}</div>
+              </div>
+              <div v-if="chatLoading" class="text-left">
+                <span class="bg-surface-container-low inline-block rounded-lg px-3 py-2 text-sm text-outline-variant">AI 思考中...</span>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <input v-model="chatInput" @keyup.enter="sendChat" :disabled="chatLoading" class="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 font-code-sm text-code-sm focus:ring-1 focus:ring-primary focus:outline-none text-on-surface" placeholder="描述 E-R 图或提出修改...">
+              <button @click="sendChat" :disabled="chatLoading || !chatInput.trim()" class="bg-primary-container text-on-primary rounded-lg px-4 py-2 font-label-mono text-label-mono disabled:opacity-50"><span class="material-symbols-outlined text-sm">send</span></button>
+            </div>
+          </div>
+
+          <!-- 普通输入模式 -->
+          <template v-else>
           <textarea
             v-model="inputText"
             class="bg-surface-container-low border-none rounded-lg p-3 font-code-sm text-code-sm text-on-surface focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest resize-none h-48 w-full"
@@ -558,6 +614,7 @@ function downloadPNG() {
             <span v-else class="material-symbols-outlined text-sm">auto_awesome</span>
             {{ loading ? '生成中...' : '生成图表' }}
           </button>
+          </template>
         </div>
         <div class="p-4 border-t border-outline-variant bg-surface-container">
           <div class="flex items-center justify-between mb-3">
