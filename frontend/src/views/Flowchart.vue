@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ELK from 'elkjs/lib/elk.bundled.js'
 
@@ -24,6 +24,9 @@ const placeholder = computed(() => {
     ? 'def check_prime(n):\n    if n <= 1: return False\n    for i in range(2, int(n**0.5)+1):\n        if n % i == 0: return False\n    return True'
     : '在此输入逻辑，例如：\n如果支付成功 -> 发送邮件\n如果支付失败 -> 提示重试'
 })
+
+// 切换模式时清空输入
+watch(inputMode, () => { inputText.value = '' })
 
 function parseToCode(data) {
   const nodes = (data?.nodes || [])
