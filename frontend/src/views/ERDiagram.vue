@@ -119,7 +119,7 @@ function renderERDiagram(data) {
   entityNodes.forEach(e => { if (!placed.has(e.id)) ordered.push(e) })
 
   // 实体放圆环上
-  const radius = 350
+  const radius = 500
   const step = (2 * Math.PI) / Math.max(ordered.length, 1)
   ordered.forEach((e, i) => {
     e.x = Math.cos(i * step - Math.PI / 2) * radius
@@ -159,10 +159,10 @@ function renderERDiagram(data) {
   const simW = 4000, simH = 3000
   const sim = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links).id(d => d.id).distance(150).strength(0.8))
-    .force('charge', d3.forceManyBody().strength(-200))
+    .force('charge', d3.forceManyBody().strength(-400))
     .force('collision', d3.forceCollide().radius(60))
   sim.stop()
-  for (let i = 0; i < 80; i++) sim.tick()
+  for (let i = 0; i < 200; i++) sim.tick()
 
   // 根据节点实际位置自动计算画布大小
   const padding = 200
