@@ -381,6 +381,33 @@ function downloadSVG() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
   a.download = `flowchart-${Date.now()}.svg`; a.click()
 }
+function downloadPNG() {
+  if (!svgContent.value) return
+  const svgEl = document.querySelector('#flowchart-canvas svg')
+  if (!svgEl) return
+  const svgData = new XMLSerializer().serializeToString(svgEl)
+  const canvas = document.createElement('canvas')
+  canvas.width = svgEl.viewBox.baseVal.width * 2
+  canvas.height = svgEl.viewBox.baseVal.height * 2
+  const ctx = canvas.getContext('2d')
+  ctx.scale(2, 2)
+  const img = new Image()
+  const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
+  const url = URL.createObjectURL(svgBlob)
+  img.onload = function() {
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0)
+    URL.revokeObjectURL(url)
+    canvas.toBlob(blob => {
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `flowchart-${Date.now()}.png`
+      a.click()
+    }, 'image/png')
+  }
+  img.src = url
+}
 </script>
 
 <template>
@@ -398,8 +425,11 @@ function downloadSVG() {
         </nav>
       </div>
       <div class="flex items-center gap-2">
-        <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" @click="downloadSVG" :disabled="!svgContent">
+        <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" @click="downloadSVG" :disabled="!svgContent" title="下载 SVG">
           <span class="material-symbols-outlined">download</span>
+        </button>
+        <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" @click="downloadPNG" :disabled="!svgContent" title="下载 PNG">
+          <span class="material-symbols-outlined">image</span>
         </button>
         <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors">
           <span class="material-symbols-outlined">share</span>
