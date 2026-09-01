@@ -8,6 +8,7 @@ const router = useRouter()
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
 const inputText = ref('用户发起请求\n验证用户身份\n如果 验证成功 -> 查询数据库\n    如果 数据存在 -> 返回结果 -> 结束\n    如果 数据不存在 -> 提示错误 -> 结束\n如果 验证失败 -> 拒绝访问 -> 结束')
+const inputMode = ref('text') // 'text' | 'code'
 const loading = ref(false)
 const error = ref('')
 const hasDiagram = ref(false)
@@ -112,6 +113,10 @@ async function generate() {
   error.value = ''
   hasDiagram.value = false
   try {
+    const description = inputMode.value === 'code'
+      ? `请将以下代码转换为流程图：\n\n${inputText.value}`
+      : inputText.value
+
     const res = await fetch(`${API_BASE}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -504,8 +509,12 @@ function downloadPNG() {
       <aside class="w-sidebar_width bg-surface-container-low border-r border-outline-variant flex flex-col z-40 flex-shrink-0 h-full">
         <div class="p-4 flex flex-col gap-4 flex-1 overflow-y-auto">
           <div>
-            <h2 class="font-label-mono text-label-mono font-bold text-on-surface mb-2">处理逻辑 (Process Logic)</h2>
-            <textarea v-model="inputText" class="w-full h-40 p-3 bg-surface-container-lowest border border-outline-variant rounded focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-code-sm text-code-sm resize-none text-on-surface" placeholder="在此输入逻辑，例如：&#10;如果支付成功 -> 发送邮件&#10;如果支付失败 -> 提示重试"></textarea>
+            <h2 class="font-label-mono text-label-mono font-bold text-on-surface mb-2">输入方式</h2>
+            <div class="flex gap-1 p-1 bg-surface-container-low rounded-lg mb-3">
+              <button @click="inputMode = 'text'" :class="inputMode === 'text' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">自然语言</button>
+              <button @click="inputMode = 'code'" :class="inputMode === 'code' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">代码</button>
+            </div>
+            <textarea v-model="inputText" class="w-full h-40 p-3 bg-surface-container-lowest border border-outline-variant rounded focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-code-sm text-code-sm resize-none text-on-surface" :placeholder="inputMode === 'code' ? 'def check_prime(n):\n    if n <= 1: return False\n    for i in range(2, int(n**0.5)+1):\n        if n % i == 0: return False\n    return True' : '在此输入逻辑，例如：&#10;如果支付成功 -> 发送邮件&#10;如果支付失败 -> 提示重试'"></textarea>
           </div>
           <button @click="generate" :disabled="loading || !inputText.trim()" class="w-full py-2 bg-primary-container text-on-primary rounded hover:bg-primary transition-colors font-label-mono text-label-mono font-bold flex items-center justify-center gap-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
             <span v-if="loading" class="material-symbols-outlined animate-spin">progress_activity</span>
