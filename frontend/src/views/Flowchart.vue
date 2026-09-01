@@ -369,7 +369,7 @@ function resetZoom() { currentZoom = 1; applyZoom() }
 function applyZoom() {
   zoomLevel.value = Math.round(currentZoom * 100)
   const svg = document.querySelector('#flowchart-canvas svg')
-  if (svg) { svg.style.transform = `scale(${currentZoom})`; svg.style.transformOrigin = 'center top' }
+  if (svg) { svg.style.transform = `scale(${currentZoom})`; svg.style.transformOrigin = 'center center' }
 }
 function downloadSVG() {
   if (!svgContent.value) return
