@@ -244,7 +244,8 @@ function renderERDiagram(data) {
       .attr('marker-end', 'url(#er-arrow)')
   })
 
-  // 基数标注
+  // 基数标注（可拖动）
+  const cardTexts = []
   relationships.forEach(r => {
     const fn = nodes.find(n => n.refId === (r.from_entity || r.from) && n.type === 'entity')
     const tn = nodes.find(n => n.refId === (r.to_entity || r.to) && n.type === 'entity')
@@ -254,15 +255,21 @@ function renderERDiagram(data) {
 
     if (fn && rn) {
       const mx = (fn.x + rn.x) / 2, my = (fn.y + rn.y) / 2 - 14
-      g.append('text').attr('x', mx).attr('y', my)
-        .attr('text-anchor', 'middle').attr('font-size', 12)
+      const cardNode = { x: mx, y: my, type: 'cardinality', text: fromCard }
+      cardTexts.push(cardNode)
+      const gText = g.append('g').attr('class', 'card-group')
+        .attr('transform', `translate(${mx}, ${my})`).datum(cardNode)
+      gText.append('text').attr('text-anchor', 'middle').attr('font-size', 12)
         .attr('font-family', 'JetBrains Mono,monospace').attr('fill', '#0891b2')
         .attr('font-weight', '600').text(fromCard)
     }
     if (tn && rn) {
       const mx = (tn.x + rn.x) / 2, my = (tn.y + rn.y) / 2 - 14
-      g.append('text').attr('x', mx).attr('y', my)
-        .attr('text-anchor', 'middle').attr('font-size', 12)
+      const cardNode = { x: mx, y: my, type: 'cardinality', text: toCard }
+      cardTexts.push(cardNode)
+      const gText = g.append('g').attr('class', 'card-group')
+        .attr('transform', `translate(${mx}, ${my})`).datum(cardNode)
+      gText.append('text').attr('text-anchor', 'middle').attr('font-size', 12)
         .attr('font-family', 'JetBrains Mono,monospace').attr('fill', '#0891b2')
         .attr('font-weight', '600').text(toCard)
     }
@@ -338,7 +345,8 @@ function renderERDiagram(data) {
     }
   })
 
-  g.selectAll('g.node-group')
+  // 所有节点组添加拖拽
+  g.selectAll('g.node-group, g.card-group')
     .attr('style', 'cursor: grab')
     .on('mousedown', function(event) {
       event.stopPropagation()
