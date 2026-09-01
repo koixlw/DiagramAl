@@ -17,6 +17,11 @@ const routes = [
     name: 'er',
     component: () => import('../views/ERDiagram.vue'),
   },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: () => import('../views/Settings.vue'),
+  },
 ]
 
 const router = createRouter({

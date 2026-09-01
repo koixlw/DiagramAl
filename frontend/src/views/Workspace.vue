@@ -25,10 +25,10 @@
         </router-link>
       </div>
       <div class="mt-auto border-t border-outline-variant pt-4 flex flex-col gap-2">
-        <a class="text-on-surface-variant hover:bg-surface-variant rounded-lg flex items-center gap-3 px-4 py-3 transition-all cursor-pointer" href="#">
+        <router-link to="/settings" class="text-on-surface-variant hover:bg-surface-variant rounded-lg flex items-center gap-3 px-4 py-3 transition-all">
           <span class="material-symbols-outlined">settings</span>
           <span class="font-label-mono text-label-mono">设置</span>
-        </a>
+        </router-link>
         <a class="text-on-surface-variant hover:bg-surface-variant rounded-lg flex items-center gap-3 px-4 py-3 transition-all cursor-pointer" href="#">
           <span class="material-symbols-outlined">help</span>
           <span class="font-label-mono text-label-mono">文档</span>
