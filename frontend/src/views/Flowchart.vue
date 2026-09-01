@@ -264,11 +264,12 @@ async function renderFlowchart(data) {
     const cx = ln.x + ln.width / 2
     const cy = ln.y + ln.height / 2
 
-    svg += makeShape(nodeType, nd.w, nd.h, cx, cy, c)
-
+    svg += `<g data-node-id="${origNode.id}" transform="translate(${cx}, ${cy})" style="cursor:grab">`
+    svg += makeShape(nodeType, nd.w, nd.h, 0, 0, c)
     const label = origNode.text || origNode.label || ln.labels?.[0]?.text || ''
-    const ty = nodeType === 'decision' ? cy + 2 : cy + 3
-    svg += `<text x="${cx}" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${c.text}" font-weight="${nodeType === 'decision' ? 600 : 400}">${label}</text>`
+    const ty = nodeType === 'decision' ? 2 : 3
+    svg += `<text x="0" y="${ty}" text-anchor="middle" dominant-baseline="middle" font-size="12.5" fill="${c.text}" font-weight="${nodeType === 'decision' ? 600 : 400}">${label}</text>`
+    svg += `</g>`
   })
 
   svg += '</g></svg>'
@@ -276,6 +277,58 @@ async function renderFlowchart(data) {
 
   const el = document.getElementById('flowchart-canvas')
   if (el) el.innerHTML = svg
+
+  // 流程图拖拽
+  const svgEl = el.querySelector('svg')
+  if (!svgEl) return
+  const gEl = svgEl.querySelector('g')
+  if (!gEl) return
+
+  const nodeGroups = gEl.querySelectorAll('g[data-node-id]')
+  const pathEls = gEl.querySelectorAll('path')
+  const textEls = gEl.querySelectorAll('text[fill="#0891b2"]')
+  let fcDragging = null
+  const nodePos = {}
+
+  nodeGroups.forEach(ng => {
+    const id = ng.getAttribute('data-node-id')
+    const transform = ng.getAttribute('transform')
+    const m = transform.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/)
+    if (m) nodePos[id] = { x: parseFloat(m[1]), y: parseFloat(m[2]) }
+
+    ng.addEventListener('mousedown', function(e) {
+      e.stopPropagation(); e.preventDefault()
+      fcDragging = { id, el: ng }
+      ng.style.cursor = 'grabbing'
+      ng.parentNode.appendChild(ng)
+    })
+  })
+
+  window.addEventListener('mousemove', function(e) {
+    if (!fcDragging) return
+    const { id, el } = fcDragging
+    const rect = svgEl.getBoundingClientRect()
+    const scaleX = svgEl.viewBox.baseVal.width / rect.width
+    const scaleY = svgEl.viewBox.baseVal.height / rect.height
+    const mx = (e.clientX - rect.left) * scaleX
+    const my = (e.clientY - rect.top) * scaleY
+    nodePos[id] = { x: mx, y: my }
+    el.setAttribute('transform', `translate(${mx}, ${my})`)
+    updateFCPaths()
+  })
+
+  window.addEventListener('mouseup', function() {
+    if (fcDragging) {
+      fcDragging.el.style.cursor = 'grab'
+      fcDragging = null
+    }
+  })
+
+  function updateFCPaths() {
+    // 简单处理：只更新节点位置，连线不动（ELK路径复杂）
+    // 如需连线跟随，需要保存原始边的端点信息
+  }
+
   loading.value = false
   hasDiagram.value = true
 }
