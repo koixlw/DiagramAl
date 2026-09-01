@@ -204,7 +204,11 @@ async function computeLayout(nodes, edges) {
 
 async function renderFlowchart(data) {
   const nodes = (data?.nodes || []).filter(n => n && n.id)
-  const edges = (data?.edges || []).filter(e => e && e.from && e.to)
+  let edges = (data?.edges || []).filter(e => e && e.from && e.to)
+
+  // 过滤掉引用不存在节点的边
+  const validIds = new Set(nodes.map(n => n.id))
+  edges = edges.filter(e => validIds.has(e.from) && validIds.has(e.to))
 
   if (nodes.length === 0) {
     error.value = 'AI 返回了空数据，请换一种描述重试'
