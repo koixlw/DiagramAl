@@ -587,7 +587,7 @@ function downloadPNG() {
         </div>
         <div class="flex-1 overflow-y-auto p-4">
           <!-- 对话模式 -->
-          <div v-if="chatMode" class="flex flex-col" style="height: calc(100vh - 320px)">
+          <div v-if="chatMode" class="flex flex-col" style="height: 500px">
             <div class="flex-1 overflow-y-auto space-y-2 mb-3 bg-surface-container-lowest rounded-lg p-3">
               <div v-for="(msg, i) in chatMessages" :key="i" :class="msg.role === 'user' ? 'text-right' : 'text-left'">
                 <div :class="msg.role === 'user' ? 'bg-primary-container text-on-primary inline-block rounded-lg px-3 py-2 text-sm' : 'bg-surface-container-low text-on-surface inline-block rounded-lg px-3 py-2 text-sm'">{{ msg.content }}</div>
