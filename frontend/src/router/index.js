@@ -22,6 +22,11 @@ const routes = [
     name: 'settings',
     component: () => import('../views/Settings.vue'),
   },
+  {
+    path: '/docs',
+    name: 'docs',
+    component: () => import('../views/Docs.vue'),
+  },
 ]
 
 const router = createRouter({
