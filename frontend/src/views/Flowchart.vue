@@ -14,6 +14,62 @@ const hasDiagram = ref(false)
 const svgContent = ref('')
 const zoomLevel = ref(100)
 let currentZoom = 1
+let currentFlowData = null
+const showCode = ref(false)
+const generatedCode = ref('')
+
+function parseToCode(data) {
+  const nodes = (data?.nodes || [])
+  const edges = (data?.edges || [])
+  const nodeMap = {}
+  nodes.forEach(n => { nodeMap[n.id] = n })
+
+  // 找开始节点
+  let startNode = nodes.find(n => n.type === 'start' || n.type === 'start_end')
+  if (!startNode) startNode = nodes[0]
+  if (!startNode) return '# 无法解析'
+
+  const lines = ['# 自动生成的代码\n']
+  const visited = new Set()
+
+  function walk(nodeId, indent) {
+    if (visited.has(nodeId)) return
+    visited.add(nodeId)
+    const node = nodeMap[nodeId]
+    if (!node) return
+
+    const text = node.text || node.label || ''
+    const type = node.type
+
+    if (type === 'start' || type === 'start_end') {
+      lines.push(`${indent}# ${text}`)
+    } else if (type === 'end') {
+      lines.push(`${indent}# ${text}`)
+    } else if (type === 'decision') {
+      lines.push(`${indent}if ${text}:`)
+      // 找"是"分支
+      const yesEdge = edges.find(e => e.from === nodeId && (e.label === '是' || e.label === 'True' || e.label === 'Yes'))
+      const noEdge = edges.find(e => e.from === nodeId && (e.label === '否' || e.label === 'False' || e.label === 'No'))
+      if (yesEdge) walk(yesEdge.to, indent + '  ')
+      if (noEdge) {
+        lines.push(`${indent}else:`)
+        walk(noEdge.to, indent + '  ')
+      }
+    } else if (type === 'process') {
+      lines.push(`${indent}# ${text}`)
+      const next = edges.find(e => e.from === nodeId && !visited.has(e.to))
+      if (next) walk(next.to, indent)
+    } else if (type === 'input_output') {
+      lines.push(`${indent}print("${text}")`)
+      const next = edges.find(e => e.from === nodeId && !visited.has(e.to))
+      if (next) walk(next.to, indent)
+    }
+  }
+
+  walk(startNode.id, '')
+  generatedCode.value = lines.join('\n')
+  showCode.value = true
+}
 
 // 节点尺寸
 const ND = {
@@ -286,6 +342,7 @@ async function renderFlowchart(data) {
 
   svg += '</g></svg>'
   svgContent.value = svg
+  currentFlowData = data
 
   const el = document.getElementById('flowchart-canvas')
   if (el) el.innerHTML = svg
@@ -431,6 +488,9 @@ function downloadPNG() {
         <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" @click="downloadPNG" :disabled="!svgContent" title="下载 PNG">
           <span class="material-symbols-outlined">image</span>
         </button>
+        <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors" @click="parseToCode(currentFlowData)" :disabled="!svgContent" title="解析为代码">
+          <span class="material-symbols-outlined">code</span>
+        </button>
         <button class="p-2 text-secondary hover:bg-surface-container-low rounded transition-colors">
           <span class="material-symbols-outlined">share</span>
         </button>
@@ -493,6 +553,20 @@ function downloadPNG() {
             <p class="font-label-mono text-label-mono">AI 正在生成中...</p>
           </div>
           <div id="flowchart-canvas" class="relative"></div>
+        </div>
+
+        <!-- 代码面板 -->
+        <div v-if="showCode" class="absolute inset-0 bg-surface-bright/95 backdrop-blur-sm z-30 flex flex-col">
+          <div class="flex items-center justify-between p-4 border-b border-outline-variant">
+            <h3 class="font-label-mono text-label-mono font-bold">生成代码 (Python)</h3>
+            <button @click="showCode = false" class="text-secondary hover:text-primary p-1">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+          </div>
+          <pre class="flex-1 p-4 font-code-sm text-code-sm text-on-surface overflow-auto"><code>{{ generatedCode }}</code></pre>
+          <div class="p-4 border-t border-outline-variant flex gap-2">
+            <button @click="navigator.clipboard.writeText(generatedCode)" class="bg-primary-container text-on-primary rounded-lg py-2 px-4 font-label-mono text-label-mono">复制代码</button>
+          </div>
         </div>
       </main>
     </div>
