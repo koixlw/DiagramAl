@@ -14,6 +14,27 @@ const hasDiagram = ref(false)
 const svgContent = ref('')
 const zoomLevel = ref(100)
 let currentZoom = 1
+const history = ref([])
+const showHistory = ref(false)
+
+// 加载历史
+try {
+  const saved = localStorage.getItem('er-history')
+  if (saved) history.value = JSON.parse(saved)
+} catch(e) {}
+
+function saveHistory(input, mode, diagramData) {
+  const item = {
+    id: Date.now(),
+    input: input.substring(0, 200),
+    mode,
+    time: new Date().toLocaleString('zh-CN'),
+    data: diagramData
+  }
+  history.value.unshift(item)
+  if (history.value.length > 20) history.value.pop()
+  localStorage.setItem('er-history', JSON.stringify(history.value))
+}
 
 async function generate() {
   if (!inputText.value.trim()) return
@@ -35,7 +56,10 @@ async function generate() {
       const err = await res.json().catch(() => ({}))
       throw new Error(err.detail || `请求失败 (${res.status})`)
     }
-    renderERDiagram((await res.json()).data)
+    const resData = await res.json()
+    const diagramData = resData.data || resData
+    renderERDiagram(diagramData)
+    saveHistory(inputText.value, inputMode.value, diagramData)
     hasDiagram.value = true
   } catch (e) {
     error.value = e.message
@@ -481,6 +505,22 @@ function downloadPNG() {
             <span v-else class="material-symbols-outlined text-sm">auto_awesome</span>
             {{ loading ? '生成中...' : '生成图表' }}
           </button>
+        </div>
+        <div class="p-4 border-t border-outline-variant bg-surface-container">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-label-mono text-label-mono text-on-surface-variant">对话历史</h3>
+            <button v-if="history.length" @click="history = []; localStorage.removeItem('er-history')" class="text-xs text-secondary hover:text-primary">清空</button>
+          </div>
+          <div v-if="history.length" class="space-y-2 max-h-48 overflow-y-auto">
+            <div v-for="item in history" :key="item.id" @click="inputText = item.input; inputMode = item.mode; renderERDiagram(item.data); hasDiagram = true" class="p-2 bg-surface-container-lowest rounded-lg cursor-pointer hover:bg-surface-container-low transition-colors">
+              <p class="font-code-sm text-code-sm text-on-surface truncate">{{ item.input }}</p>
+              <div class="flex items-center justify-between mt-1">
+                <span class="text-[10px] text-secondary">{{ item.mode === 'sql' ? 'SQL' : '自然语言' }}</span>
+                <span class="text-[10px] text-outline-variant">{{ item.time }}</span>
+              </div>
+            </div>
+          </div>
+          <p v-else class="font-code-sm text-code-sm text-outline-variant text-sm">暂无历史</p>
         </div>
         <div class="p-4 border-t border-outline-variant bg-surface-container">
           <h3 class="font-label-mono text-label-mono text-on-surface-variant mb-3">图例</h3>
