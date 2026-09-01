@@ -184,16 +184,21 @@ async function computeLayout(nodes, edges) {
 
   const layoutedGraph = await elk.layout(graph)
 
-  let maxX = 0, maxY = 0
+  let maxX = 0, maxY = 0, minX = Infinity, minY = Infinity
   layoutedGraph.children?.forEach(n => {
     maxX = Math.max(maxX, n.x + n.width)
     maxY = Math.max(maxY, n.y + n.height)
+    minX = Math.min(minX, n.x)
+    minY = Math.min(minY, n.y)
   })
 
+  const padding = 80
   return {
     layoutedGraph,
-    canvasW: maxX + 120,
-    canvasH: maxY + 120,
+    canvasW: maxX - minX + padding * 2,
+    canvasH: maxY - minY + padding * 2,
+    offsetX: padding - minX,
+    offsetY: padding - minY,
   }
 }
 
@@ -206,7 +211,7 @@ async function renderFlowchart(data) {
     return
   }
 
-  const { layoutedGraph, canvasW, canvasH } = await computeLayout(nodes, edges)
+  const { layoutedGraph, canvasW, canvasH, offsetX, offsetY } = await computeLayout(nodes, edges)
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}" viewBox="0 0 ${canvasW} ${canvasH}" style="font-family:Inter,sans-serif">`
   svg += '<defs>'
@@ -228,9 +233,9 @@ async function renderFlowchart(data) {
     const points = []
     if (le.sections && le.sections.length > 0) {
       le.sections.forEach(sec => {
-        if (sec.startPoint) points.push(`${sec.startPoint.x},${sec.startPoint.y}`)
-        if (sec.bendPoints) sec.bendPoints.forEach(bp => points.push(`${bp.x},${bp.y}`))
-        if (sec.endPoint) points.push(`${sec.endPoint.x},${sec.endPoint.y}`)
+        if (sec.startPoint) points.push(`${sec.startPoint.x + offsetX},${sec.startPoint.y + offsetY}`)
+        if (sec.bendPoints) sec.bendPoints.forEach(bp => points.push(`${bp.x + offsetX},${bp.y + offsetY}`))
+        if (sec.endPoint) points.push(`${sec.endPoint.x + offsetX},${sec.endPoint.y + offsetY}`)
       })
     }
 
@@ -246,8 +251,8 @@ async function renderFlowchart(data) {
         const fb = active ? '#eff6ff' : '#f8fafc'
         const sb = active ? '#93c5fd' : '#cbd5e1'
         const tw = (lbl.text?.length || 1) * 12 + 18
-        const lx = lbl.x || 0
-        const ly = lbl.y || 0
+        const lx = (lbl.x || 0) + offsetX
+        const ly = (lbl.y || 0) + offsetY
         svg += `<rect x="${lx - tw/2}" y="${ly - 10}" width="${tw}" height="20" rx="4" fill="${fb}" stroke="${sb}" stroke-width="1"/>`
         svg += `<text x="${lx}" y="${ly + 4}" text-anchor="middle" font-size="11" fill="${fc}" font-weight="500">${lbl.text || ''}</text>`
       })
@@ -264,7 +269,7 @@ async function renderFlowchart(data) {
     const cx = ln.x + ln.width / 2
     const cy = ln.y + ln.height / 2
 
-    svg += `<g data-node-id="${origNode.id}" transform="translate(${cx}, ${cy})" style="cursor:grab">`
+    svg += `<g data-node-id="${origNode.id}" transform="translate(${cx + offsetX}, ${cy + offsetY})" style="cursor:grab">`
     svg += makeShape(nodeType, nd.w, nd.h, 0, 0, c)
     const label = origNode.text || origNode.label || ln.labels?.[0]?.text || ''
     const ty = nodeType === 'decision' ? 2 : 3
