@@ -439,8 +439,12 @@ async function renderFlowchart(data) {
   saveFcHistory(inputText.value, inputMode.value, data)
 }
 
-function generateFromHistory(data) {
-  renderFlowchart(data)
+async function restoreFcHistory(item) {
+  inputText.value = item.input
+  inputMode.value = item.mode
+  hasDiagram.value = true
+  const data = item.data.data || item.data
+  await renderFlowchart(data)
   currentFlowData = data
 }
 
@@ -564,7 +568,7 @@ function downloadPNG() {
               <button v-if="fcHistory.length" @click="fcHistory = []; localStorage.removeItem('fc-history')" class="text-xs text-secondary hover:text-primary">清空</button>
             </div>
             <div v-if="fcHistory.length" class="space-y-2 max-h-36 overflow-y-auto mb-4">
-              <div v-for="item in fcHistory" :key="item.id" @click="inputText = item.input; inputMode = item.mode; hasDiagram = true; svgContent.value = ''; generateFromHistory(item.data)" class="p-2 bg-surface-container-lowest rounded-lg cursor-pointer hover:bg-surface-container-low transition-colors">
+              <div v-for="item in fcHistory" :key="item.id" @click="restoreFcHistory(item)" class="p-2 bg-surface-container-lowest rounded-lg cursor-pointer hover:bg-surface-container-low transition-colors">
                 <p class="font-code-sm text-code-sm text-on-surface truncate">{{ item.input }}</p>
                 <div class="flex items-center justify-between mt-1">
                   <span class="text-[10px] text-secondary">{{ item.mode === 'code' ? '代码' : '自然语言' }}</span>
