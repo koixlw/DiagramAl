@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onActivated } from 'vue'
+import { ref, computed, watch, onActivated, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import ELK from 'elkjs/lib/elk.bundled.js'
 
@@ -88,6 +88,14 @@ onActivated(() => {
     const el = document.getElementById('flowchart-canvas')
     if (el) el.innerHTML = svgContent.value
   }
+})
+
+// 接收模板数据
+onMounted(() => {
+  window.addEventListener('load-template', (e) => {
+    inputText.value = e.detail
+    inputMode.value = 'text'
+  })
 })
 
 function parseToCode(data) {

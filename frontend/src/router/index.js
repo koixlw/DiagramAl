@@ -27,6 +27,11 @@ const routes = [
     name: 'docs',
     component: () => import('../views/Docs.vue'),
   },
+  {
+    path: '/templates',
+    name: 'templates',
+    component: () => import('../views/Templates.vue'),
+  },
 ]
 
 const router = createRouter({

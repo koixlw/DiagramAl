@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import * as d3 from 'd3'
 
@@ -31,13 +31,13 @@ const colors = ref(JSON.parse(JSON.stringify(defaultColors)))
 
 // 加载保存的颜色
 try {
-  const savedColors = localStorage.getItem('er-colors')
+  const savedColors = localStorage.getItem('er-colors-v2')
   if (savedColors) colors.value = JSON.parse(savedColors)
 } catch(e) {}
 
 // 颜色变化时自动重新渲染
 watch(colors, () => {
-  localStorage.setItem('er-colors', JSON.stringify(colors.value))
+  localStorage.setItem('er-colors-v2', JSON.stringify(colors.value))
   if (currentDiagramData && hasDiagram.value) {
     renderERDiagram(currentDiagramData)
   }
@@ -64,6 +64,14 @@ try {
   const saved = localStorage.getItem('er-history')
   if (saved) history.value = JSON.parse(saved)
 } catch(e) {}
+
+// 接收模板数据
+onMounted(() => {
+  window.addEventListener('load-template', (e) => {
+    inputText.value = e.detail
+    inputMode.value = 'text'
+  })
+})
 
 function saveHistory(input, mode, diagramData) {
   const item = {
