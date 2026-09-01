@@ -246,15 +246,18 @@ async function renderFlowchart(data) {
 
     // 标签
     if (le.labels && le.labels.length > 0) {
-      le.labels.forEach(lbl => {
+      le.labels.forEach((lbl, li) => {
         const fc = active ? '#2563eb' : '#475569'
         const fb = active ? '#eff6ff' : '#f8fafc'
         const sb = active ? '#93c5fd' : '#cbd5e1'
         const tw = (lbl.text?.length || 1) * 12 + 18
         const lx = (lbl.x || 0) + offsetX
         const ly = (lbl.y || 0) + offsetY
-        svg += `<rect x="${lx - tw/2}" y="${ly - 10}" width="${tw}" height="20" rx="4" fill="${fb}" stroke="${sb}" stroke-width="1"/>`
-        svg += `<text x="${lx}" y="${ly + 4}" text-anchor="middle" font-size="11" fill="${fc}" font-weight="500">${lbl.text || ''}</text>`
+        const labelId = `label-${le.id || i}-${li}`
+        svg += `<g data-label-id="${labelId}" transform="translate(${lx}, ${ly})" style="cursor:grab">`
+        svg += `<rect x="${-tw/2}" y="-10" width="${tw}" height="20" rx="4" fill="${fb}" stroke="${sb}" stroke-width="1"/>`
+        svg += `<text x="0" y="4" text-anchor="middle" font-size="11" fill="${fc}" font-weight="500">${lbl.text || ''}</text>`
+        svg += `</g>`
       })
     }
   })
@@ -283,15 +286,14 @@ async function renderFlowchart(data) {
   const el = document.getElementById('flowchart-canvas')
   if (el) el.innerHTML = svg
 
-  // 流程图拖拽
+  // 流程图拖拽（节点 + 标签）
   const svgEl = el.querySelector('svg')
   if (!svgEl) return
   const gEl = svgEl.querySelector('g')
   if (!gEl) return
 
   const nodeGroups = gEl.querySelectorAll('g[data-node-id]')
-  const pathEls = gEl.querySelectorAll('path')
-  const textEls = gEl.querySelectorAll('text[fill="#0891b2"]')
+  const labelGroups = gEl.querySelectorAll('g[data-label-id]')
   let fcDragging = null
   const nodePos = {}
 
@@ -300,7 +302,6 @@ async function renderFlowchart(data) {
     const transform = ng.getAttribute('transform')
     const m = transform.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/)
     if (m) nodePos[id] = { x: parseFloat(m[1]), y: parseFloat(m[2]) }
-
     ng.addEventListener('mousedown', function(e) {
       e.stopPropagation(); e.preventDefault()
       fcDragging = { id, el: ng }
@@ -309,17 +310,24 @@ async function renderFlowchart(data) {
     })
   })
 
+  labelGroups.forEach(lg => {
+    lg.addEventListener('mousedown', function(e) {
+      e.stopPropagation(); e.preventDefault()
+      fcDragging = { el: lg, isLabel: true }
+      lg.style.cursor = 'grabbing'
+      lg.parentNode.appendChild(lg)
+    })
+  })
+
   window.addEventListener('mousemove', function(e) {
     if (!fcDragging) return
-    const { id, el } = fcDragging
+    const { el, isLabel } = fcDragging
     const rect = svgEl.getBoundingClientRect()
     const scaleX = svgEl.viewBox.baseVal.width / rect.width
     const scaleY = svgEl.viewBox.baseVal.height / rect.height
     const mx = (e.clientX - rect.left) * scaleX
     const my = (e.clientY - rect.top) * scaleY
-    nodePos[id] = { x: mx, y: my }
     el.setAttribute('transform', `translate(${mx}, ${my})`)
-    updateFCPaths()
   })
 
   window.addEventListener('mouseup', function() {
@@ -328,11 +336,6 @@ async function renderFlowchart(data) {
       fcDragging = null
     }
   })
-
-  function updateFCPaths() {
-    // 简单处理：只更新节点位置，连线不动（ELK路径复杂）
-    // 如需连线跟随，需要保存原始边的端点信息
-  }
 
   loading.value = false
   hasDiagram.value = true
