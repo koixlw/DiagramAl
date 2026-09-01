@@ -7,6 +7,7 @@ const router = useRouter()
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
 const inputText = ref('')
+const inputMode = ref('text') // 'text' | 'sql'
 const loading = ref(false)
 const error = ref('')
 const hasDiagram = ref(false)
@@ -21,6 +22,10 @@ async function generate() {
   hasDiagram.value = false
 
   try {
+    const description = inputMode.value === 'sql'
+      ? `请解析以下 SQL 建表语句，生成 E-R 图：\n\n${inputText.value}`
+      : inputText.value
+
     const res = await fetch(`${API_BASE}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -141,7 +146,7 @@ function renderERDiagram(data) {
   } else {
     // ≤5 实体：圆形布局
     const ordered = layers.flat().map(id => entityNodes.find(e => e.id === id)).filter(Boolean)
-    const radius = 500
+    const radius = 350
     const step = (2 * Math.PI) / Math.max(ordered.length, 1)
     ordered.forEach((e, i) => {
       e.x = Math.cos(i * step - Math.PI / 2) * radius
@@ -363,14 +368,18 @@ function downloadSVG() {
     <div class="flex flex-1 overflow-hidden relative">
       <aside class="w-sidebar_width bg-surface-container-lowest border-r border-outline-variant flex flex-col h-full shrink-0 z-10">
         <div class="p-4 border-b border-outline-variant">
-          <h2 class="font-label-mono text-label-mono text-on-surface-variant mb-2">E-R 图描述</h2>
-          <p class="font-code-sm text-code-sm text-secondary">用自然语言描述实体、关系和属性</p>
+          <h2 class="font-label-mono text-label-mono text-on-surface-variant mb-2">输入方式</h2>
+          <div class="flex gap-1 p-1 bg-surface-container-low rounded-lg">
+            <button @click="inputMode = 'text'" :class="inputMode === 'text' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">自然语言</button>
+            <button @click="inputMode = 'sql'" :class="inputMode === 'sql' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">SQL 语句</button>
+          </div>
         </div>
         <div class="flex-1 overflow-y-auto p-4">
-          <div class="flex flex-col gap-2">
-            <label class="font-label-mono text-label-mono text-on-surface-variant">描述</label>
-            <textarea v-model="inputText" class="bg-surface-container-low border-none rounded-lg p-3 font-code-sm text-code-sm text-on-surface focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest resize-none h-48" placeholder="学生选课系统：学生有学号、姓名、邮箱、入学日期；课程有课程号、名称、学分；学生和课程是多对多的选课关系，包含选课日期和成绩"></textarea>
-          </div>
+          <textarea
+            v-model="inputText"
+            class="bg-surface-container-low border-none rounded-lg p-3 font-code-sm text-code-sm text-on-surface focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest resize-none h-48 w-full"
+            :placeholder="inputMode === 'sql' ? 'CREATE TABLE 学生 (\n  学号 VARCHAR(20) PRIMARY KEY,\n  姓名 VARCHAR(50)\n);\n\nCREATE TABLE 课程 (\n  课程号 VARCHAR(20) PRIMARY KEY,\n  名称 VARCHAR(100)\n);' : '学生选课系统：学生有学号、姓名、邮箱；课程有课程号、名称、学分；学生和课程是多对多的选课关系'"
+          ></textarea>
           <button @click="generate" :disabled="loading || !inputText.trim()" class="mt-4 w-full bg-primary-container text-on-primary rounded-lg py-2 font-label-mono text-label-mono hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
             <span v-if="loading" class="material-symbols-outlined animate-spin text-sm">progress_activity</span>
             <span v-else class="material-symbols-outlined text-sm">auto_awesome</span>
