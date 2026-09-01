@@ -7,7 +7,6 @@ const router = useRouter()
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
 const inputText = ref('')
-const inputMode = ref('text') // 'text' | 'sql'
 const loading = ref(false)
 const error = ref('')
 const hasDiagram = ref(false)
@@ -22,10 +21,6 @@ async function generate() {
   hasDiagram.value = false
 
   try {
-    const description = inputMode.value === 'sql'
-      ? `请解析以下 SQL 建表语句，生成 E-R 图：\n\n${inputText.value}`
-      : inputText.value
-
     const res = await fetch(`${API_BASE}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -35,21 +30,18 @@ async function generate() {
       const err = await res.json().catch(() => ({}))
       throw new Error(err.detail || `请求失败 (${res.status})`)
     }
-    const resData = await res.json()
-    const diagramData = resData.data || resData
-    renderERDiagram(diagramData)
+    renderERDiagram((await res.json()).data)
     hasDiagram.value = true
   } catch (e) {
     error.value = e.message
-    console.error(e)
   } finally {
     loading.value = false
   }
 }
 
 function renderERDiagram(data) {
-  const entities = data?.entities || []
-  const relationships = data?.relationships || []
+  const entities = data.entities || []
+  const relationships = data.relationships || []
 
   const nodes = []
   const links = []
@@ -61,25 +53,49 @@ function renderERDiagram(data) {
       refId: e.id,
       type: 'entity',
       name: e.name,
-      attributes: e.attributes || [],
+    })
+    // 属性节点（椭圆）
+    (e.attributes || []).forEach((a, i) => {
+      const attrId = `attr-${e.id}-${i}`
+      nodes.push({
+        id: attrId,
+        type: 'attribute',
+        name: a.name,
+        isPrimaryKey: a.primary_key || a.is_primary_key || false,
+        parentEntity: `e-${e.id}`,
+      })
+      links.push({ source: `e-${e.id}`, target: attrId })
     })
   })
 
   // 关系节点
   relationships.forEach(r => {
+    const relId = `r-${r.id}`
     nodes.push({
-      id: `r-${r.id}`,
+      id: relId,
       refId: r.id,
       type: 'relationship',
       name: r.name,
-      attributes: r.attributes || [],
-      fromEntity: r.from_entity || r.from,
-      toEntity: r.to_entity || r.to,
+      fromEntity: `e-${r.from_entity || r.from}`,
+      toEntity: `e-${r.to_entity || r.to}`,
       fromCard: r.from_cardinality || r.cardinality?.from || 'N',
       toCard: r.to_cardinality || r.cardinality?.to || 'M',
     })
-    links.push({ source: `e-${r.from_entity || r.from}`, target: `r-${r.id}` })
-    links.push({ source: `e-${r.to_entity || r.to}`, target: `r-${r.id}` })
+    links.push({ source: `e-${r.from_entity || r.from}`, target: relId })
+    links.push({ source: `e-${r.to_entity || r.to}`, target: relId })
+
+    // 关系属性
+    (r.attributes || []).forEach((a, i) => {
+      const attrId = `attr-rel-${r.id}-${i}`
+      nodes.push({
+        id: attrId,
+        type: 'attribute',
+        name: a.name,
+        isPrimaryKey: a.primary_key || a.is_primary_key || false,
+        parentRel: relId,
+      })
+      links.push({ source: relId, target: attrId })
+    })
   })
 
   const svgW = 800, svgH = 600
@@ -154,39 +170,42 @@ function renderERDiagram(data) {
     }
   })
 
-  // 实体矩形（属性画在内部）
+  // 实体矩形
   nodes.filter(n => n.type === 'entity').forEach(node => {
-    const eh = Math.max(40, 30 + node.attributes.length * 20)
-    const ew = 140
+    const ew = 120, eh = 44
     const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
 
     gNode.append('rect')
       .attr('x', -ew/2).attr('y', -eh/2).attr('width', ew).attr('height', eh).attr('rx', 4)
       .attr('fill', '#dbeafe').attr('stroke', '#2563eb').attr('stroke-width', 2)
 
-    gNode.append('line')
-      .attr('x1', -ew/2).attr('y1', -eh/2 + 28).attr('x2', ew/2).attr('y2', -eh/2 + 28)
-      .attr('stroke', '#bfdbfe').attr('stroke-width', 1)
-
     gNode.append('text')
-      .attr('x', 0).attr('y', -eh/2 + 18)
-      .attr('text-anchor', 'middle').attr('font-size', 13).attr('font-weight', '600')
+      .attr('x', 0).attr('y', 4)
+      .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+      .attr('font-size', 13).attr('font-weight', '600')
       .attr('font-family', 'Inter,sans-serif').attr('fill', '#1e40af')
       .text(node.name)
+  })
 
-    node.attributes.forEach((a, i) => {
-      const ay = -eh/2 + 44 + i * 20
-      const txt = gNode.append('text')
-        .attr('x', 0).attr('y', ay)
-        .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
-        .attr('font-size', 11).attr('font-family', 'JetBrains Mono,monospace')
-        .attr('fill', '#64748b')
-      if (a.primary_key || a.is_primary_key) {
-        txt.append('tspan').attr('text-decoration', 'underline').text(a.name)
-      } else {
-        txt.text(a.name)
-      }
-    })
+  // 属性椭圆
+  nodes.filter(n => n.type === 'attribute').forEach(node => {
+    const aw = Math.max(50, node.name.length * 14 + 20), ah = 28
+    const gNode = g.append('g').attr('transform', `translate(${node.x}, ${node.y})`)
+
+    gNode.append('ellipse')
+      .attr('cx', 0).attr('cy', 0).attr('rx', aw/2).attr('ry', ah/2)
+      .attr('fill', '#f0fdf4').attr('stroke', '#16a34a').attr('stroke-width', node.isPrimaryKey ? 2.5 : 1.5)
+
+    const txt = gNode.append('text')
+      .attr('x', 0).attr('y', 3)
+      .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+      .attr('font-size', 11).attr('font-family', 'JetBrains Mono,monospace')
+      .attr('fill', node.isPrimaryKey ? '#166534' : '#4b5563')
+    if (node.isPrimaryKey) {
+      txt.append('tspan').attr('text-decoration', 'underline').text(node.name)
+    } else {
+      txt.text(node.name)
+    }
   })
 
   // 关系菱形
@@ -215,7 +234,7 @@ function resetZoom() { currentZoom = 1; applyZoom() }
 function applyZoom() {
   zoomLevel.value = Math.round(currentZoom * 100)
   const svg = document.querySelector('#er-canvas svg')
-  if (svg) { svg.style.transform = `scale(${currentZoom})`; svg.style.transformOrigin = 'center center' }
+  if (svg) { svg.style.transform = `scale(${currentZoom})`; svg.style.transformOrigin = 'center top' }
 }
 function downloadSVG() {
   if (!svgContent.value) return
@@ -251,18 +270,14 @@ function downloadSVG() {
     <div class="flex flex-1 overflow-hidden relative">
       <aside class="w-sidebar_width bg-surface-container-lowest border-r border-outline-variant flex flex-col h-full shrink-0 z-10">
         <div class="p-4 border-b border-outline-variant">
-          <h2 class="font-label-mono text-label-mono text-on-surface-variant mb-2">输入方式</h2>
-          <div class="flex gap-1 p-1 bg-surface-container-low rounded-lg">
-            <button @click="inputMode = 'text'" :class="inputMode === 'text' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">自然语言</button>
-            <button @click="inputMode = 'sql'" :class="inputMode === 'sql' ? 'bg-primary-container text-on-primary' : 'text-on-surface-variant'" class="flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all">SQL 语句</button>
-          </div>
+          <h2 class="font-label-mono text-label-mono text-on-surface-variant mb-2">E-R 图描述</h2>
+          <p class="font-code-sm text-code-sm text-secondary">用自然语言描述实体、关系和属性</p>
         </div>
         <div class="flex-1 overflow-y-auto p-4">
-          <textarea
-            v-model="inputText"
-            class="w-full h-48 bg-surface-container-low border-none rounded-lg p-3 font-code-sm text-code-sm text-on-surface focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest resize-none"
-            :placeholder="inputMode === 'sql' ? 'CREATE TABLE 学生 (\n  学号 VARCHAR(20) PRIMARY KEY,\n  姓名 VARCHAR(50),\n  邮箱 VARCHAR(100)\n);\n\nCREATE TABLE 课程 (\n  课程号 VARCHAR(20) PRIMARY KEY,\n  名称 VARCHAR(100),\n  学分 INT\n);\n\nCREATE TABLE 选课 (\n  学号 VARCHAR(20),\n  课程号 VARCHAR(20),\n  选课日期 DATE,\n  成绩 DECIMAL(5,2),\n  PRIMARY KEY (学号, 课程号),\n  FOREIGN KEY (学号) REFERENCES 学生(学号),\n  FOREIGN KEY (课程号) REFERENCES 课程(课程号)\n);' : '学生选课系统：学生有学号、姓名、邮箱；课程有课程号、名称、学分；学生和课程是多对多的选课关系，包含选课日期和成绩'"
-          ></textarea>
+          <div class="flex flex-col gap-2">
+            <label class="font-label-mono text-label-mono text-on-surface-variant">描述</label>
+            <textarea v-model="inputText" class="bg-surface-container-low border-none rounded-lg p-3 font-code-sm text-code-sm text-on-surface focus:ring-1 focus:ring-primary focus:bg-surface-container-lowest resize-none h-48" placeholder="学生选课系统：学生有学号、姓名、邮箱、入学日期；课程有课程号、名称、学分；学生和课程是多对多的选课关系，包含选课日期和成绩"></textarea>
+          </div>
           <button @click="generate" :disabled="loading || !inputText.trim()" class="mt-4 w-full bg-primary-container text-on-primary rounded-lg py-2 font-label-mono text-label-mono hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
             <span v-if="loading" class="material-symbols-outlined animate-spin text-sm">progress_activity</span>
             <span v-else class="material-symbols-outlined text-sm">auto_awesome</span>
@@ -299,6 +314,7 @@ function downloadSVG() {
           <span class="material-symbols-outlined text-sm align-middle mr-1">error</span> {{ error }}
           <button @click="error = ''" class="ml-2 text-red-500 hover:text-red-700">&times;</button>
         </div>
+
         <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-surface-container-lowest border border-outline-variant rounded-full px-4 py-2 flex gap-4 shadow-sm z-20">
           <button class="text-secondary hover:text-primary transition-colors" @click="zoomIn" :disabled="!hasDiagram">
             <span class="material-symbols-outlined text-sm">zoom_in</span>
@@ -311,6 +327,7 @@ function downloadSVG() {
             <span class="material-symbols-outlined text-sm">center_focus_strong</span>
           </button>
         </div>
+
         <div class="flex-1 relative w-full h-full overflow-auto p-8 flex items-center justify-center min-h-[600px] min-w-[800px]">
           <div v-if="!hasDiagram && !loading" class="flex flex-col items-center justify-center text-on-surface-variant">
             <span class="material-symbols-outlined text-6xl text-outline-variant mb-4">database</span>
@@ -326,10 +343,3 @@ function downloadSVG() {
     </div>
   </div>
 </template>
-
-<style>
-.dot-grid {
-  background-image: radial-gradient(circle, #e2e8f0 1px, transparent 1px);
-  background-size: 20px 20px;
-}
-</style>
