@@ -155,14 +155,7 @@ function renderERDiagram(data) {
     })
   })
 
-  // 轻量力导向微调
-  const simW = 4000, simH = 3000
-  const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(150).strength(0.8))
-    .force('charge', d3.forceManyBody().strength(-400))
-    .force('collision', d3.forceCollide().radius(60))
-  sim.stop()
-  for (let i = 0; i < 200; i++) sim.tick()
+  // 不使用力导向，直接用BFS智能布局的位置
 
   // 根据节点实际位置自动计算画布大小
   const padding = 200
